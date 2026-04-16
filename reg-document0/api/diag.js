@@ -1,7 +1,7 @@
 import { list } from "@vercel/blob";
 import { cronAuthorized } from "./_cron-auth.js";
-import { VERCEL_CRONS } from "../lib/cron-meta.js";
-import { resolveIndexJobsFromEnv } from "../lib/index-jobs.js";
+import { VERCEL_CRONS } from "./_lib/cron-meta.js";
+import { resolveIndexJobsFromEnv } from "./_lib/index-jobs.js";
 
 /**
  * GET /api/diag?secret=… — same auth as cron-rebuild.
@@ -64,9 +64,10 @@ export default async function handler(req) {
   if (hasBlobToken) {
     try {
       const r = await list({ prefix: "indexes/", limit: 100 });
+      const blobs = Array.isArray(r.blobs) ? r.blobs : [];
       listResult = {
         ok: true,
-        blobs: r.blobs.map((b) => ({
+        blobs: blobs.map((b) => ({
           pathname: b.pathname,
           url: b.url,
           size: b.size,

@@ -8,7 +8,7 @@ No large JSON is committed to the d0 git repo.
 
 After deploy, open **`/dashboard.html`** on your deployment (e.g. `https://d0-lime.vercel.app/dashboard.html`). Enter **`CRON_SECRET`** to load:
 
-- Vercel cron paths/schedules (from `lib/cron-meta.js`, kept in sync with `vercel.json`)
+- Vercel cron paths/schedules (from `api/_lib/cron-meta.js`, kept in sync with `vercel.json`)
 - **Resolved index jobs** (effective `INDEX_JOBS` / `INDEX_BASE_URL` rules)
 - **Blob objects** under `indexes/` (links to serve URL and raw blob URL)
 - **Rebuild now** (same as `GET /api/cron-rebuild`)
@@ -19,11 +19,13 @@ The page can remember the secret in **sessionStorage** for this browser tab sess
 
 1. Create a **Blob** store on the Vercel team; link it to this project so `BLOB_READ_WRITE_TOKEN` is available.
 2. Connect this GitHub repo; set **Root Directory** to `reg-document0`.
-3. **Install Command** (parent package must build `d0/dist` first):
+3. **Install Command** — parent **`dist/`** is not in git, so you must **`npm run build`** in the repo root **before** `reg-document0` installs; then **`postinstall`** copies `../dist` into `node_modules/d0/dist` so `d0/build-remote-index` resolves.
 
    ```bash
    cd .. && npm ci && npm run build && cd reg-document0 && npm ci
    ```
+
+   If you omit the parent build, cron will fail with `ERR_MODULE_NOT_FOUND` for `d0/build-remote-index`.
 
 4. **Environment variables**
    - `CRON_SECRET` — long random string; cron and manual rebuild must send `Authorization: Bearer <CRON_SECRET>` or `?secret=<CRON_SECRET>`.

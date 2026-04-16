@@ -5,6 +5,9 @@
   "engines": {
     "node": ">=22.13"
   },
+  "scripts": {
+    "postinstall": "node scripts/ensure-d0-dist.mjs"
+  },
   "dependencies": {
     "@vercel/blob": "^2.3.3",
     "d0": "file:.."
