@@ -4,6 +4,17 @@ Small Vercel project: **rebuild** remote search JSON with the `d0` crawler (any 
 
 No large JSON is committed to the d0 git repo.
 
+## Web dashboard
+
+After deploy, open **`/dashboard.html`** on your deployment (e.g. `https://d0-lime.vercel.app/dashboard.html`). Enter **`CRON_SECRET`** to load:
+
+- Vercel cron paths/schedules (from `lib/cron-meta.js`, kept in sync with `vercel.json`)
+- **Resolved index jobs** (effective `INDEX_JOBS` / `INDEX_BASE_URL` rules)
+- **Blob objects** under `indexes/` (links to serve URL and raw blob URL)
+- **Rebuild now** (same as `GET /api/cron-rebuild`)
+
+The page can remember the secret in **sessionStorage** for this browser tab session only.
+
 ## Vercel setup
 
 1. Create a **Blob** store on the Vercel team; link it to this project so `BLOB_READ_WRITE_TOKEN` is available.

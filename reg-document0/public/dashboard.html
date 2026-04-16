@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Document0 registry — dashboard</title>
+    <style>
+      :root {
+        --bg: #0f1419;
+        --panel: #1a2332;
+        --border: #2d3a4d;
+        --text: #e7ecf3;
+        --muted: #8b9cb3;
+        --accent: #5b9fd4;
+        --good: #3ecf8e;
+        --bad: #f07178;
+        --warn: #e5c07b;
+        font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        min-height: 100vh;
+      }
+      header {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.15rem;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0.35rem 0 0;
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.25rem;
+      }
+      section h2 {
+        margin: 0 0 0.75rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: flex-end;
+        margin-bottom: 0.5rem;
+      }
+      label {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--muted);
+        margin-bottom: 0.25rem;
+      }
+      input[type="password"],
+      input[type="text"] {
+        width: min(100%, 28rem);
+        padding: 0.5rem 0.65rem;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-size: 0.9rem;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--accent);
+        color: #0a0f14;
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(1.08);
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--text);
+        border-color: var(--border);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .pill {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .pill.ok {
+        background: rgba(62, 207, 142, 0.15);
+        color: var(--good);
+      }
+      .pill.bad {
+        background: rgba(240, 113, 120, 0.15);
+        color: var(--bad);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.5rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      pre.err {
+        margin: 0.5rem 0 0;
+        padding: 0.75rem;
+        background: var(--bg);
+        border-radius: 6px;
+        color: var(--bad);
+        font-size: 0.8rem;
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 0.8125rem;
+      }
+      #status {
+        margin-top: 0.75rem;
+        font-size: 0.8125rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Document0 registry</h1>
+      <p>Configured cron targets, blobs under <code>indexes/</code>, and manual rebuild (same secret as <code>CRON_SECRET</code>).</p>
+    </header>
+    <main>
+      <section>
+        <h2>Access</h2>
+        <div class="row">
+          <div style="flex: 1; min-width: 200px">
+            <label for="secret">CRON_SECRET</label>
+            <input id="secret" type="password" autocomplete="off" placeholder="Paste secret, then Load" />
+          </div>
+          <button type="button" id="btn-load">Load</button>
+          <button type="button" id="btn-rebuild" class="secondary" title="Runs full crawl + upload; may take minutes">
+            Rebuild now
+          </button>
+        </div>
+        <label style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.4rem; cursor: pointer">
+          <input type="checkbox" id="remember" checked />
+          Remember in this browser (sessionStorage)
+        </label>
+        <div id="status"></div>
+      </section>
+
+      <section id="sec-env">
+        <h2>Environment</h2>
+        <div id="env-summary" class="muted">Load to see flags.</div>
+      </section>
+
+      <section id="sec-cron">
+        <h2>Vercel crons</h2>
+        <p class="muted" style="margin: 0 0 0.75rem">
+          Schedules from deploy config (see <code>lib/cron-meta.js</code> / <code>vercel.json</code>).
+        </p>
+        <div id="cron-table-wrap"></div>
+      </section>
+
+      <section id="sec-jobs">
+        <h2>Resolved index jobs</h2>
+        <p class="muted" style="margin: 0 0 0.75rem">Effective crawl targets after env rules (not raw <code>INDEX_JOBS</code>).</p>
+        <div id="jobs-table-wrap"></div>
+      </section>
+
+      <section id="sec-blobs">
+        <h2>Indexes in Blob</h2>
+        <p class="muted" style="margin: 0 0 0.75rem">Objects with prefix <code>indexes/</code> in the linked store.</p>
+        <div id="blobs-table-wrap"></div>
+      </section>
+    </main>
+    <script>
+      const STORAGE_KEY = "reg-document0-cron-secret";
+
+      function $(id) {
+        return document.getElementById(id);
+      }
+
+      function setStatus(msg, isError) {
+        const el = $("status");
+        el.textContent = msg || "";
+        el.style.color = isError ? "var(--bad)" : "var(--muted)";
+      }
+
+      function fmtBytes(n) {
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / (1024 * 1024)).toFixed(1) + " MB";
+      }
+
+      function api(path) {
+        const secret = $("secret").value.trim();
+        if (!secret) throw new Error("Enter CRON_SECRET first.");
+        const u = new URL(path, location.origin);
+        u.searchParams.set("secret", secret);
+        return fetch(u.toString(), { headers: { Authorization: "Bearer " + secret } });
+      }
+
+      function renderCrons(rows) {
+        const w = $("cron-table-wrap");
+        if (!rows || !rows.length) {
+          w.innerHTML = "<p class='muted'>None configured.</p>";
+          return;
+        }
+        w.innerHTML =
+          "<table><thead><tr><th>Path</th><th>Schedule</th><th>Note</th></tr></thead><tbody>" +
+          rows
+            .map(
+              (r) =>
+                "<tr><td><code>" +
+                escapeHtml(r.path) +
+                "</code></td><td><code>" +
+                escapeHtml(r.schedule) +
+                "</code></td><td>" +
+                escapeHtml(r.description || "") +
+                "</td></tr>",
+            )
+            .join("") +
+          "</tbody></table>";
+      }
+
+      function renderJobs(data) {
+        const w = $("jobs-table-wrap");
+        if (!data.resolvedJobs) {
+          w.innerHTML = "";
+          return;
+        }
+        if (!data.resolvedJobs.ok) {
+          w.innerHTML = "<pre class='err'>" + escapeHtml(data.resolvedJobs.message) + "</pre>";
+          return;
+        }
+        const jobs = data.resolvedJobs.jobs;
+        if (!jobs.length) {
+          w.innerHTML = "<p class='muted'>No jobs — set INDEX_JOBS or INDEX_BASE_URL.</p>";
+          return;
+        }
+        const base = location.origin;
+        w.innerHTML =
+          "<table><thead><tr><th>File</th><th>Base URL</th><th>docId</th><th>maxPages</th><th>external</th><th>Links</th></tr></thead><tbody>" +
+          jobs
+            .map((j) => {
+              const serve = base + "/indexes/" + encodeURIComponent(j.file);
+              return (
+                "<tr><td><code>" +
+                escapeHtml(j.file) +
+                "</code></td><td>" +
+                linkify(j.baseUrl) +
+                "</td><td>" +
+                escapeHtml(j.docId || "—") +
+                "</td><td>" +
+                escapeHtml(String(j.maxPages)) +
+                "</td><td>" +
+                escapeHtml(String(!!j.external)) +
+                "</td><td><a href=\"" +
+                escapeAttr(serve) +
+                "\">JSON</a></td></tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table>";
+      }
+
+      function renderBlobs(data) {
+        const w = $("blobs-table-wrap");
+        if (!data.listResult) {
+          w.innerHTML = "";
+          return;
+        }
+        if (!data.listResult.ok) {
+          w.innerHTML = "<pre class='err'>" + escapeHtml(data.listResult.message) + "</pre>";
+          return;
+        }
+        const blobs = data.listResult.blobs || [];
+        if (!blobs.length) {
+          w.innerHTML = "<p class='muted'>No blobs yet. Run <strong>Rebuild now</strong> or the weekly cron.</p>";
+          return;
+        }
+        const base = location.origin;
+        let extra = "";
+        if (data.listResult.hasMore) {
+          extra = "<p class='muted'>Listing capped at 100; more objects exist in the store.</p>";
+        }
+        w.innerHTML =
+          "<table><thead><tr><th>Path</th><th>Size</th><th>Uploaded</th><th>Links</th></tr></thead><tbody>" +
+          blobs
+            .map((b) => {
+              const name = b.pathname.replace(/^indexes\//, "");
+              const serve = base + "/indexes/" + encodeURIComponent(name);
+              return (
+                "<tr><td><code>" +
+                escapeHtml(b.pathname) +
+                "</code></td><td>" +
+                escapeHtml(fmtBytes(b.size)) +
+                "</td><td>" +
+                escapeHtml(b.uploadedAt) +
+                "</td><td><a href=\"" +
+                escapeAttr(serve) +
+                "\">via app</a> · <a href=\"" +
+                escapeAttr(b.url) +
+                "\">blob URL</a></td></tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table>" +
+          extra;
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function escapeAttr(s) {
+        return escapeHtml(s).replace(/'/g, "&#39;");
+      }
+
+      function linkify(url) {
+        return "<a href=\"" + escapeAttr(url) + "\" rel=\"noopener\">" + escapeHtml(url) + "</a>";
+      }
+
+      async function loadData() {
+        setStatus("Loading…");
+        $("btn-load").disabled = true;
+        try {
+          const res = await api("/api/diag");
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setStatus(res.status + " " + (data.message || JSON.stringify(data)), true);
+            return;
+          }
+          if ($("remember").checked) {
+            sessionStorage.setItem(STORAGE_KEY, $("secret").value.trim());
+          } else {
+            sessionStorage.removeItem(STORAGE_KEY);
+          }
+
+          const env = $("env-summary");
+          env.innerHTML =
+            "<span class='pill " +
+            (data.hasCronSecret ? "ok" : "bad") +
+            "'>CRON_SECRET</span> " +
+            "<span class='pill " +
+            (data.hasBlobToken ? "ok" : "bad") +
+            "'>BLOB_READ_WRITE_TOKEN</span> " +
+            "<span class='pill " +
+            (data.indexJobsParse && data.indexJobsParse.ok ? "ok" : "bad") +
+            "'>INDEX_JOBS parse</span> " +
+            "<span class='muted'>raw INDEX_JOBS length: " +
+            (data.indexJobsCharLength ?? 0) +
+            "</span>";
+
+          renderCrons(data.vercelCrons || []);
+          renderJobs(data);
+          renderBlobs(data);
+          setStatus("Updated " + new Date().toLocaleString());
+        } catch (e) {
+          setStatus(e.message || String(e), true);
+        } finally {
+          $("btn-load").disabled = false;
+        }
+      }
+
+      async function rebuild() {
+        if (!confirm("Start a full index rebuild? This can take several minutes.")) return;
+        setStatus("Rebuild running…");
+        $("btn-rebuild").disabled = true;
+        try {
+          const res = await api("/api/cron-rebuild");
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setStatus(res.status + " " + (data.message || JSON.stringify(data)), true);
+          } else {
+            setStatus("Rebuild finished: " + JSON.stringify(data.jobs?.map((j) => j.pathname + (j.ok === false ? " FAIL" : " OK")) || data));
+          }
+          await loadData();
+        } catch (e) {
+          setStatus(e.message || String(e), true);
+        } finally {
+          $("btn-rebuild").disabled = false;
+        }
+      }
+
+      $("btn-load").addEventListener("click", loadData);
+      $("btn-rebuild").addEventListener("click", rebuild);
+
+      const saved = sessionStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        $("secret").value = saved;
+      }
+    </script>
+  </body>
+</html>
