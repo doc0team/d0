@@ -1,0 +1,9 @@
+{
+  "name": "@d0/docs",
+  "version": "0.1.0",
+  "structure": {
+    "getting-started": "pages/getting-started.md",
+    "commands": "pages/commands.md",
+    "bundle-format": "pages/bundle-format.md"
+  }
+}

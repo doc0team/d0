@@ -1,0 +1,62 @@
+{
+  "name": "d0",
+  "version": "0.1.0",
+  "description": "Terminal-native documentation platform — browse docs in the CLI; same commands for humans and agents.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "d0": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --import tsx src/index.ts",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "keywords": [
+    "docs",
+    "cli",
+    "terminal",
+    "documentation",
+    "mcp"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/madis/d0.git"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@shikijs/cli": "^4.0.2",
+    "chalk": "^5.4.1",
+    "cheerio": "^1.2.0",
+    "commander": "^13.1.0",
+    "ink": "^7.0.0",
+    "marked": "^15.0.7",
+    "minisearch": "^7.1.2",
+    "react": "^19.2.5",
+    "react-reconciler": "^0.33.0",
+    "shiki": "^3.23.0",
+    "slice-ansi": "^9.0.0",
+    "string-width": "^8.2.0",
+    "tar": "^7.4.3",
+    "turndown": "^7.2.4",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.2.14",
+    "@types/turndown": "^5.0.6",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

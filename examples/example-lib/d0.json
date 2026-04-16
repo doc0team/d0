@@ -1,0 +1,14 @@
+{
+  "name": "@example/lib",
+  "version": "0.1.0",
+  "bin": "example-lib-docs",
+  "library": {
+    "name": "example-lib",
+    "versions": "*"
+  },
+  "structure": {
+    "quickstart": "pages/quickstart.md",
+    "api/auth": "pages/api/auth.md",
+    "api/webhooks": "pages/api/webhooks.md"
+  }
+}
