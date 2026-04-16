@@ -24,9 +24,29 @@ export type ListDocUrlsOptions = {
 const indexCache = new Map<string, { ts: number; pages: string[] }>();
 const pageCache = new Map<string, { ts: number; page: WebDocPage }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
-/** Cap merged discovery (llms + sitemap + nav); sitemaps alone can list hundreds of doc URLs. */
-const MAX_DISCOVERED_URLS = 5000;
-const MAX_SITEMAP_NESTED = 40;
+
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Like envPositiveInt, but allows 0 to mean "unlimited" for search fetch caps. */
+function envNonNegativeIntAllowZeroUnlimited(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** Cap merged discovery (llms + sitemap + nav). Override with D0_MAX_DISCOVERED_URLS. */
+const MAX_DISCOVERED_URLS = envPositiveInt("D0_MAX_DISCOVERED_URLS", 50_000);
+/** Nested sitemap index maps to fetch. Override with D0_MAX_SITEMAP_NESTED. */
+const MAX_SITEMAP_NESTED = envPositiveInt("D0_MAX_SITEMAP_NESTED", 200);
+/** Max pages to fetch markdown for when searching (live, non-store). 0 = all discovered. D0_SEARCH_MAX_FETCH. */
+const DEFAULT_SEARCH_MAX_FETCH = envNonNegativeIntAllowZeroUnlimited("D0_SEARCH_MAX_FETCH", 10_000);
+const SEARCH_FETCH_CONCURRENCY = envPositiveInt("D0_SEARCH_FETCH_CONCURRENCY", 8);
 /**
  * When the sitemap lists at least this many URLs, treat it as authoritative for **in-page nav** links:
  * homepage `<a href>` often includes marketing shortcuts (e.g. `/faq`) that duplicate real doc paths
@@ -459,38 +479,130 @@ function snippetFor(markdown: string, query: string): string {
   return (start > 0 ? "..." : "") + plain.slice(start, end) + (end < plain.length ? "..." : "");
 }
 
-export async function searchDocUrls(
-  target: string,
-  query: string,
-  listOpts?: ListDocUrlsOptions,
-): Promise<WebDocHit[]> {
-  const pages = await listDocUrls(target, listOpts);
-  const sample = pages.slice(0, 30);
-  const docs = await Promise.all(
-    sample.map(async (u) => {
-      try {
-        return await readDocUrl(u);
-      } catch {
-        return null;
+export type SearchDocUrlsFetchOptions = {
+  /** Max pages to fetch for scoring. 0 = all URLs from discovery. Default: D0_SEARCH_MAX_FETCH env or 10_000. */
+  maxFetch?: number;
+  /** Parallel fetches when building the search corpus. Default: D0_SEARCH_FETCH_CONCURRENCY or 8. */
+  fetchConcurrency?: number;
+  /**
+   * Fetch ranked URLs in batches and stop once enough hits are found (good for MCP / interactive).
+   * CLI/TUI omit this so search runs up to `maxFetch` for completeness.
+   */
+  earlyExit?: boolean;
+};
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const idx = i++;
+      if (idx >= items.length) return;
+      out[idx] = await fn(items[idx]!);
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return out;
+}
+
+/** Prefer URLs whose path or string matches query tokens so live search touches relevant pages first. */
+function rankDocUrlsForSearchQuery(urls: string[], query: string): string[] {
+  const q = query.toLowerCase().trim();
+  const tokens = [...new Set(q.split(/\s+/).filter((t) => t.length > 1))];
+  if (tokens.length === 0) return [...urls];
+  const scored = urls.map((url) => {
+    let s = 0;
+    const u = url.toLowerCase();
+    if (q.length >= 3 && u.includes(q)) s += 12;
+    for (const t of tokens) {
+      if (u.includes(t)) s += 4;
+    }
+    try {
+      const path = new URL(url).pathname.toLowerCase();
+      for (const t of tokens) {
+        if (path.includes(t)) s += 3;
       }
-    }),
-  );
+    } catch {
+      /* skip */
+    }
+    return { url, s };
+  });
+  scored.sort((a, b) => (b.s !== a.s ? b.s - a.s : a.url.localeCompare(b.url)));
+  return scored.map((x) => x.url);
+}
+
+function scoreWebDocPageForQuery(d: WebDocPage, query: string): number {
   const q = query.toLowerCase();
+  return (
+    (d.title.toLowerCase().includes(q) ? 3 : 0) +
+    (d.url.toLowerCase().includes(q) ? 2 : 0) +
+    (d.markdown.toLowerCase().includes(q) ? 1 : 0)
+  );
+}
+
+function webDocHitsFromPages(docs: WebDocPage[], query: string): WebDocHit[] {
   return docs
-    .filter((d): d is WebDocPage => Boolean(d))
     .map((d) => ({
       url: d.url,
       title: d.title,
       markdown: d.markdown,
-      score:
-        (d.title.toLowerCase().includes(q) ? 3 : 0) +
-        (d.url.toLowerCase().includes(q) ? 2 : 0) +
-        (d.markdown.toLowerCase().includes(q) ? 1 : 0),
+      score: scoreWebDocPageForQuery(d, query),
     }))
     .filter((d) => d.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 20)
     .map((d) => ({ url: d.url, title: d.title, snippet: snippetFor(d.markdown, query) }));
+}
+
+const EARLY_EXIT_MIN_HITS = 14;
+const EARLY_EXIT_BATCH_MIN = 24;
+
+export async function searchDocUrls(
+  target: string,
+  query: string,
+  listOpts?: ListDocUrlsOptions,
+  fetchOpts?: SearchDocUrlsFetchOptions,
+): Promise<WebDocHit[]> {
+  const pages = await listDocUrls(target, listOpts);
+  const ranked = rankDocUrlsForSearchQuery(pages, query);
+  const configuredMax =
+    fetchOpts?.maxFetch !== undefined ? fetchOpts.maxFetch : DEFAULT_SEARCH_MAX_FETCH;
+  const maxFetch = configuredMax <= 0 ? ranked.length : Math.min(configuredMax, ranked.length);
+  const concurrency = fetchOpts?.fetchConcurrency ?? SEARCH_FETCH_CONCURRENCY;
+
+  async function fetchOne(u: string): Promise<WebDocPage | null> {
+    try {
+      return await readDocUrl(u);
+    } catch {
+      return null;
+    }
+  }
+
+  if (fetchOpts?.earlyExit !== true) {
+    const sample = ranked.slice(0, maxFetch);
+    const docs = await mapWithConcurrency(sample, concurrency, fetchOne);
+    return webDocHitsFromPages(
+      docs.filter((d): d is WebDocPage => Boolean(d)),
+      query,
+    );
+  }
+
+  const batchSize = Math.max(EARLY_EXIT_BATCH_MIN, concurrency * 3);
+  const collected: WebDocPage[] = [];
+  let offset = 0;
+  while (offset < maxFetch) {
+    const slice = ranked.slice(offset, Math.min(offset + batchSize, maxFetch));
+    if (slice.length === 0) break;
+    const docs = await mapWithConcurrency(slice, concurrency, fetchOne);
+    for (const d of docs) {
+      if (d) collected.push(d);
+    }
+    offset += slice.length;
+    const hits = webDocHitsFromPages(collected, query);
+    if (hits.length >= EARLY_EXIT_MIN_HITS) return hits;
+  }
+  return webDocHitsFromPages(collected, query);
 }
 
 export function isUrlLike(input: string): boolean {

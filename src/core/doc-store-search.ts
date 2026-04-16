@@ -9,7 +9,13 @@ export async function buildDocStoreSearchIndex(manifest: DocStoreManifest): Prom
   for (const [pathKey, rec] of Object.entries(manifest.pages)) {
     const md = await readDocStorePage(manifest.storeId, rec.relPath);
     const body = md.replace(/```[\s\S]*?```/g, " ").replace(/\s+/g, " ").trim();
-    docs.push({ id: pathKey, slug: pathKey.replace(/^\//, ""), title: rec.title, body });
+    docs.push({
+      id: pathKey,
+      slug: pathKey.replace(/^\//, ""),
+      title: rec.title,
+      body,
+      url: rec.url,
+    });
   }
   const mini = new MiniSearch<SearchDocument>({
     fields: ["slug", "title", "body"],
@@ -32,6 +38,6 @@ export async function searchDocStore(
   const mini = await buildDocStoreSearchIndex(manifest);
   return searchIndex(mini, query, limit).map((hit) => ({
     ...hit,
-    path: `/${hit.slug}`,
+    path: hit.pageUrl ?? `/${hit.slug}`,
   }));
 }

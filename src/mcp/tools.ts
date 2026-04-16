@@ -4,19 +4,23 @@ import { findInstalledBundle } from "../core/storage.js";
 import { loadBundle, listSlugs, readPageMarkdown } from "../core/bundle.js";
 import { buildIndex, searchIndex } from "../core/search-engine.js";
 import { isUrlLike, listDocUrls, readDocUrl, searchDocUrls } from "../core/web-docs.js";
+import { loadRemoteSearchIndex } from "../core/remote-search-index.js";
 import { loadConfig } from "../core/config.js";
 import { readDocStoreManifest, readDocStorePage, storeIdForBundle, storeIdForUrl } from "../core/doc-store.js";
-import { listDocStoreChildren, docStorePagePathKeyForUrl } from "../core/doc-store-nav.js";
-import { ingestUrlToDocStore } from "../core/ingest-url.js";
+import { listDocStoreChildren } from "../core/doc-store-nav.js";
+import { ingestUrlToDocStore, mergeWebDocPageIntoUrlDocStore, pathKeyForPageUrl } from "../core/ingest-url.js";
 import { ingestBundleToDocStore } from "../core/ingest-bundle.js";
 import { searchDocStore } from "../core/doc-store-search.js";
 import {
   listDocsRegistryEntries,
   resolveDocsEntryWithFallback,
+  resolveRegistrySearchIndexUrls,
   searchDocsRegistry,
   searchGlobalDocsRegistry,
   type DocsRegistryEntry,
 } from "../core/registry-client.js";
+
+type IngestMode = "none" | "lazy" | "full";
 
 type OpenDocSession = {
   docId: string;
@@ -26,7 +30,8 @@ type OpenDocSession = {
   registryRevision?: string;
   fetchedAt: string;
   storeId?: string;
-  ingestRequested?: boolean;
+  /** `lazy` (default for URL docs): full discovery tree, fetch pages on read, persist in background. `full`: blocking ingest all pages first. */
+  ingestMode: IngestMode;
   ingestError?: string;
 };
 
@@ -37,6 +42,32 @@ type ListNodeItem = {
 };
 
 const sessions = new Map<string, OpenDocSession>();
+
+/** Live URL search from MCP: bounded fetches so Stripe-scale sites do not hang the tool (see D0_MCP_SEARCH_MAX_FETCH). */
+function mcpLiveSearchMaxFetch(): number {
+  const raw = process.env.D0_MCP_SEARCH_MAX_FETCH?.trim();
+  if (!raw) return 200;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return 200;
+  return Math.min(n, 10_000);
+}
+
+/** Serialized writes per store so concurrent read_node merges do not corrupt manifest.json */
+const lazyUrlStoreWriteChain = new Map<string, Promise<void>>();
+
+function scheduleLazyUrlStoreWrite(storeId: string, task: () => Promise<void>): void {
+  const prev = lazyUrlStoreWriteChain.get(storeId) ?? Promise.resolve();
+  const next = prev.then(task).catch((err) => {
+    console.error(`[d0 mcp] lazy doc store write failed (${storeId}):`, err);
+  });
+  lazyUrlStoreWriteChain.set(storeId, next);
+}
+
+function parseIngestMode(ingest: boolean | "full" | undefined, provider: "bundle" | "web"): IngestMode {
+  if (ingest === false) return "none";
+  if (ingest === "full") return "full";
+  return provider === "web" ? "lazy" : "full";
+}
 
 function docIdFor(entry: DocsRegistryEntry): string {
   return `doc:${entry.id}`;
@@ -126,8 +157,15 @@ async function listDocStoreNodeItems(session: OpenDocSession, nodePath: string):
   }));
 }
 
+/** Use trie from local store only after blocking full ingest (URL) or bundle store. */
+function shouldListNodesFromStore(session: OpenDocSession): boolean {
+  if (!session.storeId) return false;
+  if (session.provider === "bundle") return true;
+  return session.provider === "web" && session.ingestMode === "full";
+}
+
 async function ensureIngestedSession(session: OpenDocSession): Promise<void> {
-  if (!session.ingestRequested || session.storeId) return;
+  if (session.ingestMode !== "full" || session.storeId) return;
   try {
     if (session.provider === "web") {
       const manifest = await ingestUrlToDocStore(session.entry.source);
@@ -168,8 +206,9 @@ export function registerD0Tools(server: McpServer): void {
         searchDocsRegistry(query),
         searchGlobalDocsRegistry(config, query),
       ]);
+      const resolvedGlobal = resolveRegistrySearchIndexUrls(globalResult.entries, config.registryIndexBaseUrl);
       const merged = new Map<string, DocsRegistryEntry>();
-      for (const entry of [...localEntries, ...globalResult.entries]) {
+      for (const entry of [...localEntries, ...resolvedGlobal]) {
         if (!merged.has(entry.id)) merged.set(entry.id, entry);
       }
       return {
@@ -184,6 +223,9 @@ export function registerD0Tools(server: McpServer): void {
                 source: entry.source,
                 description: entry.description,
                 sourceScope: entry.sourceScope ?? "builtin",
+                searchIndexUrl: entry.searchIndexUrl,
+                searchIndexPath: entry.searchIndexPath,
+                searchIndexRevision: entry.searchIndexRevision,
               })),
             ),
           },
@@ -213,6 +255,9 @@ export function registerD0Tools(server: McpServer): void {
                 source: entry.source,
                 description: entry.description,
                 sourceScope: entry.sourceScope ?? "builtin",
+                searchIndexUrl: entry.searchIndexUrl,
+                searchIndexPath: entry.searchIndexPath,
+                searchIndexRevision: entry.searchIndexRevision,
               })),
             ),
           },
@@ -228,9 +273,12 @@ export function registerD0Tools(server: McpServer): void {
       inputSchema: {
         package: z.string().describe("Docs identifier, alias, or topic"),
         ingest: z
-          .boolean()
+          .union([z.boolean(), z.literal("full")])
           .optional()
-          .describe("If true, ingest into local ~/.d0/docs-store for structured list/read/search"),
+          .default(true)
+          .describe(
+            "URL docs (default true): lazy hydrate — full discovery tree, pages fetched on read_node, each read persisted in the background. false: no writes. \"full\": blocking ingest of all pages first. Installed bundles always use blocking ingest when ingest is not false.",
+          ),
       },
     },
     async ({ package: packageQuery, ingest }) => {
@@ -246,6 +294,7 @@ export function registerD0Tools(server: McpServer): void {
       const entry = resolved.entry;
       const docId = docIdFor(entry);
       const provider: "bundle" | "web" = entry.sourceType === "bundle" ? "bundle" : "web";
+      const ingestMode = parseIngestMode(ingest, provider);
       const session: OpenDocSession = {
         docId,
         entry,
@@ -253,12 +302,14 @@ export function registerD0Tools(server: McpServer): void {
         resolvedFrom: resolved.resolvedFrom,
         registryRevision: resolved.registryRevision,
         fetchedAt: resolved.fetchedAt,
-        ingestRequested: ingest === true,
+        ingestMode,
       };
-      if (!ingest) {
+      if (ingestMode === "none") {
         const existingId = provider === "web" ? storeIdForUrl(entry.source) : storeIdForBundle(entry.source);
         const existing = await readDocStoreManifest(existingId);
         if (existing) session.storeId = existing.storeId;
+      } else if (ingestMode === "lazy" && provider === "web") {
+        session.storeId = storeIdForUrl(entry.source);
       } else {
         await ensureIngestedSession(session);
       }
@@ -280,8 +331,12 @@ export function registerD0Tools(server: McpServer): void {
               registryRevision: resolved.registryRevision,
               fetchedAt: resolved.fetchedAt,
               store_id: session.storeId,
-              ingest: ingest === true,
+              ingest: ingest !== false,
+              ingest_mode: ingestMode,
               ingestError: session.ingestError,
+              search_index_url: entry.searchIndexUrl,
+              search_index_path: entry.searchIndexPath,
+              search_index_revision: entry.searchIndexRevision,
             }),
           },
         ],
@@ -304,7 +359,7 @@ export function registerD0Tools(server: McpServer): void {
         return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
       }
       const nodePath = normalizeNodePath(path);
-      if (session.ingestRequested && session.ingestError && !session.storeId) {
+      if (session.ingestMode === "full" && session.ingestError && !session.storeId) {
         return {
           content: [
             {
@@ -314,7 +369,7 @@ export function registerD0Tools(server: McpServer): void {
           ],
         };
       }
-      const storeNodes = await listDocStoreNodeItems(session, nodePath);
+      const storeNodes = shouldListNodesFromStore(session) ? await listDocStoreNodeItems(session, nodePath) : null;
       if (storeNodes) {
         return {
           content: [
@@ -366,7 +421,14 @@ export function registerD0Tools(server: McpServer): void {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({ doc_id, path: nodePath, provider: session.provider, resolvedFrom: session.resolvedFrom, nodes }),
+              text: JSON.stringify({
+                doc_id,
+                path: nodePath,
+                provider: session.provider,
+                resolvedFrom: session.resolvedFrom,
+                store_id: session.storeId,
+                nodes,
+              }),
             },
           ],
         };
@@ -398,7 +460,7 @@ export function registerD0Tools(server: McpServer): void {
         return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
       }
       const nodePath = normalizeNodePath(path);
-      if (session.ingestRequested && session.ingestError && !session.storeId) {
+      if (session.ingestMode === "full" && session.ingestError && !session.storeId) {
         return {
           content: [
             {
@@ -408,12 +470,38 @@ export function registerD0Tools(server: McpServer): void {
           ],
         };
       }
-      if (session.storeId) {
-        const manifest = await readDocStoreManifest(session.storeId);
-        if (manifest) {
-          if (session.provider === "web" && (nodePath.startsWith("http://") || nodePath.startsWith("https://"))) {
-            const key = docStorePagePathKeyForUrl(manifest, nodePath);
-            if (!key) {
+
+      const isWebAbsolute =
+        session.provider === "web" &&
+        (nodePath.startsWith("http://") || nodePath.startsWith("https://")) &&
+        isUrlLike(nodePath);
+
+      if (isWebAbsolute) {
+        if (session.storeId) {
+          const manifest = await readDocStoreManifest(session.storeId);
+          if (manifest) {
+            const pathKey = pathKeyForPageUrl(nodePath);
+            const rec = manifest.pages[pathKey];
+            if (rec) {
+              const content = await readDocStorePage(session.storeId, rec.relPath);
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify({
+                      doc_id,
+                      path: nodePath,
+                      title: rec.title,
+                      provider: session.provider,
+                      resolvedFrom: session.resolvedFrom,
+                      store_id: session.storeId,
+                      content,
+                    }),
+                  },
+                ],
+              };
+            }
+            if (session.ingestMode === "full") {
               return {
                 content: [
                   {
@@ -423,36 +511,56 @@ export function registerD0Tools(server: McpServer): void {
                 ],
               };
             }
-            const rec = manifest.pages[key];
-            if (!rec) {
-              return {
-                content: [
-                  {
-                    type: "text" as const,
-                    text: JSON.stringify({ error: "unknown store page", path: key, store_id: session.storeId }),
-                  },
-                ],
-              };
-            }
-            const content = await readDocStorePage(session.storeId, rec.relPath);
+          } else if (session.ingestMode === "full") {
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: JSON.stringify({
-                    doc_id,
-                    path: nodePath,
-                    title: rec.title,
-                    provider: session.provider,
-                    resolvedFrom: session.resolvedFrom,
-                    store_id: session.storeId,
-                    content,
-                  }),
+                  text: JSON.stringify({ error: "store manifest missing", path: nodePath, store_id: session.storeId }),
                 },
               ],
             };
           }
+        }
 
+        try {
+          const page = await readDocUrl(nodePath);
+          if (session.ingestMode === "lazy" && session.storeId) {
+            const baseUrl = session.entry.source;
+            const sid = session.storeId;
+            scheduleLazyUrlStoreWrite(sid, () => mergeWebDocPageIntoUrlDocStore(baseUrl, page));
+          }
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  doc_id,
+                  path: nodePath,
+                  title: page.title,
+                  provider: session.provider,
+                  resolvedFrom: session.resolvedFrom,
+                  store_id: session.storeId,
+                  content: page.markdown,
+                }),
+              },
+            ],
+          };
+        } catch (e) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({ error: e instanceof Error ? e.message : String(e), path: nodePath }),
+              },
+            ],
+          };
+        }
+      }
+
+      if (session.storeId) {
+        const manifest = await readDocStoreManifest(session.storeId);
+        if (manifest) {
           const slug = nodePath.replace(/^\//, "");
           const rec = manifest.pages[`/${slug}`];
           if (!rec) {
@@ -559,7 +667,8 @@ export function registerD0Tools(server: McpServer): void {
   server.registerTool(
     "search_nodes",
     {
-      description: "Search nodes in an opened documentation context.",
+      description:
+        "Search nodes in an opened documentation context. When the registry entry has searchIndexUrl, uses the downloaded pre-built index (fast). Otherwise URL lazy mode uses bounded live search (D0_MCP_SEARCH_MAX_FETCH); ingest \"full\" uses the local doc store index.",
       inputSchema: {
         doc_id: z.string().describe("doc_id returned by open_docs"),
         query: z.string().describe("Search query"),
@@ -570,7 +679,7 @@ export function registerD0Tools(server: McpServer): void {
       if (!session) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
       }
-      if (session.ingestRequested && session.ingestError && !session.storeId) {
+      if (session.ingestMode === "full" && session.ingestError && !session.storeId) {
         return {
           content: [
             {
@@ -580,7 +689,37 @@ export function registerD0Tools(server: McpServer): void {
           ],
         };
       }
-      if (session.storeId) {
+      if (session.entry.sourceType === "url") {
+        try {
+          const remote = await loadRemoteSearchIndex(session.entry);
+          if (remote) {
+            const hits = searchIndex(remote, query).map((hit) => ({
+              path: hit.pageUrl ?? `/${hit.slug}`,
+              title: hit.title,
+              snippet: hit.snippet,
+              score: hit.score,
+            }));
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    doc_id,
+                    query,
+                    search: "remote_index",
+                    hits,
+                    provider: session.provider,
+                    resolvedFrom: session.resolvedFrom,
+                  }),
+                },
+              ],
+            };
+          }
+        } catch (e) {
+          console.error("[d0 mcp] remote search index failed:", e);
+        }
+      }
+      if (session.ingestMode === "full" && session.storeId) {
         const manifest = await readDocStoreManifest(session.storeId);
         if (manifest) {
           const hits = await searchDocStore(manifest, query);
@@ -624,7 +763,10 @@ export function registerD0Tools(server: McpServer): void {
         return { content: [{ type: "text" as const, text: JSON.stringify({ doc_id, query, hits }) }] };
       }
 
-      const hits = await searchDocUrls(session.entry.source, query);
+      const hits = await searchDocUrls(session.entry.source, query, undefined, {
+        maxFetch: mcpLiveSearchMaxFetch(),
+        earlyExit: true,
+      });
       return {
         content: [
           {

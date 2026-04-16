@@ -1,4 +1,4 @@
-import type { D0Config } from "./config.js";
+import { loadConfig, type D0Config } from "./config.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -26,6 +26,15 @@ export interface DocsRegistryEntry {
   source: string;
   description?: string;
   sourceScope?: "user-local" | "installed-local" | "cached-global" | "live-global" | "builtin";
+  /** HTTPS URL of a `d0-remote-search-index-v1` JSON file (see `d0 index build-url`). */
+  searchIndexUrl?: string;
+  /**
+   * Path under `registryIndexBaseUrl` from config (default `https://reg.document0.com`), e.g. `indexes/stripe-v1.json`.
+   * Ignored if `searchIndexUrl` is set.
+   */
+  searchIndexPath?: string;
+  /** Bumps cache when the index artifact changes. */
+  searchIndexRevision?: string;
 }
 
 export interface DocsResolveResult {
@@ -55,6 +64,8 @@ const BUILTIN_DOCS_REGISTRY: DocsRegistryEntry[] = [
     source: "https://docs.stripe.com",
     description: "Stripe API documentation",
     sourceScope: "builtin",
+    searchIndexPath: "indexes/stripe-v1.json",
+    searchIndexRevision: "2026-04-17",
   },
   {
     id: "node",
@@ -89,6 +100,12 @@ function normalizeRegistryEntry(raw: DocsRegistryEntry): DocsRegistryEntry | nul
   const source = raw.source?.trim();
   if (!source) return null;
   const aliases = dedupeAliases([...(raw.aliases ?? []), id]);
+  const searchIndexUrlRaw = raw.searchIndexUrl?.trim();
+  const searchIndexUrl =
+    searchIndexUrlRaw && /^https?:\/\//i.test(searchIndexUrlRaw) ? searchIndexUrlRaw : undefined;
+  const pathRaw = raw.searchIndexPath?.trim().replace(/^\/+/, "") || "";
+  const searchIndexPath =
+    pathRaw && !pathRaw.includes("..") && !pathRaw.includes(":") ? pathRaw : undefined;
   return {
     id,
     aliases,
@@ -96,7 +113,24 @@ function normalizeRegistryEntry(raw: DocsRegistryEntry): DocsRegistryEntry | nul
     source,
     description: raw.description?.trim() || undefined,
     sourceScope: raw.sourceScope,
+    searchIndexUrl,
+    searchIndexPath: searchIndexUrl ? undefined : searchIndexPath,
+    searchIndexRevision: raw.searchIndexRevision?.trim() || undefined,
   };
+}
+
+/** Turn `searchIndexPath` into `searchIndexUrl` using the configured registry index CDN origin. */
+export function resolveRegistrySearchIndexUrls(
+  entries: DocsRegistryEntry[],
+  registryIndexBaseUrl: string,
+): DocsRegistryEntry[] {
+  const origin = registryIndexBaseUrl.replace(/\/+$/, "");
+  return entries.map((e) => {
+    if (e.searchIndexUrl) return e;
+    if (!e.searchIndexPath) return e;
+    const p = e.searchIndexPath.replace(/^\/+/, "");
+    return { ...e, searchIndexUrl: `${origin}/${p}` };
+  });
 }
 
 async function readUserRegistryEntries(): Promise<DocsRegistryEntry[]> {
@@ -143,9 +177,12 @@ function mergeEntriesById(entries: DocsRegistryEntry[]): DocsRegistryEntry[] {
       continue;
     }
     byId.set(entry.id, {
+      ...existing,
       ...entry,
       aliases: dedupeAliases([...existing.aliases, ...entry.aliases]),
       description: entry.description ?? existing.description,
+      searchIndexUrl: entry.searchIndexUrl ?? existing.searchIndexUrl,
+      searchIndexRevision: entry.searchIndexRevision ?? existing.searchIndexRevision,
     });
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -244,6 +281,9 @@ function mergeByPrecedence(entries: DocsRegistryEntry[]): DocsRegistryEntry[] {
       ...existing,
       aliases: dedupeAliases([...existing.aliases, ...entry.aliases]),
       description: existing.description ?? entry.description,
+      searchIndexUrl: existing.searchIndexUrl ?? entry.searchIndexUrl,
+      searchIndexPath: existing.searchIndexPath ?? entry.searchIndexPath,
+      searchIndexRevision: existing.searchIndexRevision ?? entry.searchIndexRevision,
     });
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -303,18 +343,24 @@ export async function resolveGlobalDocsRegistryEntry(
 }
 
 export async function listDocsRegistryEntries(config?: D0Config): Promise<DocsRegistryEntry[]> {
+  const cfg = config ?? (await loadConfig());
   const [bundles, userEntries] = await Promise.all([installedBundleEntries(), readUserRegistryEntries()]);
   const local = mergeByPrecedence([...userEntries, ...bundles, ...BUILTIN_DOCS_REGISTRY]);
-  if (!config) return local;
-  const cached = await readGlobalRegistryCache();
-  const cachedEntries = cached?.entries ?? [];
-  const liveEntries =
-    cached && isFreshCache(cached)
-      ? []
-      : await fetchGlobalDocsRegistry(config)
-          .then((x) => x.entries)
-          .catch(() => []);
-  return mergeByPrecedence([...local, ...cachedEntries, ...liveEntries]);
+  let merged: DocsRegistryEntry[];
+  if (!config) {
+    merged = local;
+  } else {
+    const cached = await readGlobalRegistryCache();
+    const cachedEntries = cached?.entries ?? [];
+    const liveEntries =
+      cached && isFreshCache(cached)
+        ? []
+        : await fetchGlobalDocsRegistry(config)
+            .then((x) => x.entries)
+            .catch(() => []);
+    merged = mergeByPrecedence([...local, ...cachedEntries, ...liveEntries]);
+  }
+  return resolveRegistrySearchIndexUrls(merged, cfg.registryIndexBaseUrl);
 }
 
 export function scoreRegistryMatch(entry: DocsRegistryEntry, query: string): number {
@@ -330,7 +376,7 @@ export function scoreRegistryMatch(entry: DocsRegistryEntry, query: string): num
 }
 
 export async function searchDocsRegistry(query: string): Promise<DocsRegistryEntry[]> {
-  const entries = await listDocsRegistryEntries();
+  const entries = await listDocsRegistryEntries(await loadConfig());
   return entries
     .map((entry) => ({ entry, score: scoreRegistryMatch(entry, query) }))
     .filter((item) => item.score > 0)
@@ -339,7 +385,7 @@ export async function searchDocsRegistry(query: string): Promise<DocsRegistryEnt
 }
 
 export async function resolveDocsRegistryEntry(query: string): Promise<DocsRegistryEntry | null> {
-  const entries = await listDocsRegistryEntries();
+  const entries = await listDocsRegistryEntries(await loadConfig());
   let best: { entry: DocsRegistryEntry; score: number } | null = null;
   for (const entry of entries) {
     const score = scoreRegistryMatch(entry, query);
@@ -352,7 +398,7 @@ export async function resolveDocsRegistryEntry(query: string): Promise<DocsRegis
 }
 
 export async function resolveDocsEntryWithFallback(config: D0Config, query: string): Promise<DocsResolveResult | null> {
-  const localEntries = await listDocsRegistryEntries();
+  const localEntries = await listDocsRegistryEntries(config);
   let best: { entry: DocsRegistryEntry; score: number } | null = null;
   for (const entry of localEntries) {
     const score = scoreRegistryMatch(entry, query);

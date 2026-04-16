@@ -7,6 +7,8 @@ export interface SearchDocument {
   slug: string;
   title: string;
   body: string;
+  /** Absolute page URL (remote pre-built indexes) so agents can pass it to read_node. */
+  url?: string;
 }
 
 export interface SearchHit {
@@ -14,7 +16,19 @@ export interface SearchHit {
   title: string;
   snippet: string;
   score?: number;
+  pageUrl?: string;
 }
+
+/** MiniSearch options used for doc-store search, bundle search, and remote downloadable indexes. */
+export const REMOTE_SEARCH_INDEX_MINI_OPTIONS = {
+  fields: ["slug", "title", "body", "url"] as const,
+  storeFields: ["slug", "title", "body", "url"] as const,
+  searchOptions: {
+    boost: { title: 3, slug: 2, body: 1, url: 2 },
+    fuzzy: 0.2,
+    prefix: true,
+  },
+} as const;
 
 function firstHeading(markdown: string): string | undefined {
   const m = markdown.match(/^#\s+(.+)$/m);
@@ -54,12 +68,12 @@ export async function buildIndex(bundle: LoadedBundle): Promise<MiniSearch<Searc
     docs.push({ id: slug, slug, title, body });
   }
   const mini = new MiniSearch<SearchDocument>({
-    fields: ["slug", "title", "body"],
-    storeFields: ["slug", "title", "body"],
+    fields: [...REMOTE_SEARCH_INDEX_MINI_OPTIONS.fields],
+    storeFields: [...REMOTE_SEARCH_INDEX_MINI_OPTIONS.storeFields],
     searchOptions: {
-      boost: { title: 3, slug: 2, body: 1 },
-      fuzzy: 0.2,
-      prefix: true,
+      boost: { ...REMOTE_SEARCH_INDEX_MINI_OPTIONS.searchOptions.boost },
+      fuzzy: REMOTE_SEARCH_INDEX_MINI_OPTIONS.searchOptions.fuzzy,
+      prefix: REMOTE_SEARCH_INDEX_MINI_OPTIONS.searchOptions.prefix,
     },
   });
   mini.addAll(docs);
@@ -75,11 +89,13 @@ export function searchIndex(
   const results = mini.search(query, { combineWith: "AND" });
   return results.slice(0, limit).map((r) => {
     const body = String(r.body ?? "");
+    const pageUrl = r.url != null && String(r.url).trim() ? String(r.url).trim() : undefined;
     return {
       slug: String(r.slug),
       title: String(r.title),
       snippet: snippetAround(body, query),
       score: typeof r.score === "number" ? r.score : undefined,
+      pageUrl,
     };
   });
 }

@@ -3,3 +3,4 @@ dist/
 prebuilds/
 *.log
 .DS_Store
+data/

@@ -13,9 +13,11 @@ import { cmdBuild } from "./commands/build.js";
 import { cmdPublish } from "./commands/publish.js";
 import { cmdImport } from "./commands/import.js";
 import { cmdMcp } from "./commands/mcp.js";
+import { cmdMcpInstall } from "./commands/mcp-install.js";
 import { cmdBrowseOpenTui } from "./commands/opentui.js";
 import { cmdRegistrySync } from "./commands/registry.js";
 import { cmdIngestBundle, cmdIngestRegistryCache, cmdIngestUrl } from "./commands/ingest.js";
+import { cmdIndexBuildUrl } from "./commands/index-remote.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -34,6 +36,7 @@ const GLOBAL = new Set([
   "browse-opentui",
   "registry",
   "ingest",
+  "index",
   "help",
   "-h",
   "--help",
@@ -256,7 +259,17 @@ async function main(): Promise<void> {
       await cmdImport(source, opts);
     });
 
-  program.command("mcp").description("start MCP server (stdio)").action(async () => {
+  const mcpCmd = program.command("mcp").description("Model Context Protocol — stdio server or Cursor setup");
+  mcpCmd
+    .command("install")
+    .description("add d0 to Cursor MCP config (merge into mcp.json)")
+    .option("--project", "write .cursor/mcp.json in the current directory instead of ~/.cursor/mcp.json")
+    .option("--dry-run", "print merged JSON without writing")
+    .option("--yes", "replace an existing mcpServers.d0 entry without prompting")
+    .action(async (opts: { project?: boolean; dryRun?: boolean; yes?: boolean }) => {
+      await cmdMcpInstall({ project: opts.project, dryRun: opts.dryRun, yes: opts.yes });
+    });
+  mcpCmd.action(async () => {
     await cmdMcp();
   });
 
@@ -274,7 +287,12 @@ async function main(): Promise<void> {
     .command("url")
     .argument("<url>", "docs site/page URL")
     .option("--external", "include off-site URLs from llms.txt when discovering pages")
-    .option("--max-pages <n>", "max pages to fetch", (v) => Number(v), 200)
+    .option(
+      "--max-pages <n>",
+      "max pages to fetch after discovery (0 = all discovered; default from D0_INGEST_MAX_PAGES or 50_000)",
+      (v) => Number(v),
+      50_000,
+    )
     .option("--json", "JSON output")
     .action(async (url: string, opts: { external?: boolean; maxPages?: number; json?: boolean }) => {
       await cmdIngestUrl(url, opts, config);
@@ -293,6 +311,31 @@ async function main(): Promise<void> {
     .action(async (opts: { json?: boolean }) => {
       await cmdIngestRegistryCache(opts, config);
     });
+
+  const indexCmd = program.command("index").description("pre-built remote search indexes (CDN-style) for fast MCP search");
+  indexCmd
+    .command("build-url")
+    .description("crawl discovery URLs, build a MiniSearch JSON payload (d0-remote-search-index-v1)")
+    .argument("<url>", "docs base URL")
+    .requiredOption("--out <file>", "output path for the JSON index file")
+    .option("--max-pages <n>", "max pages to include", (v) => Number(v), 500)
+    .option("--doc-id <id>", "registry doc id (e.g. stripe)", "")
+    .option("--revision <rev>", "revision string for cache busting", "")
+    .option("--external", "include off-site URLs from llms.txt when discovering pages")
+    .action(
+      async (
+        url: string,
+        opts: { out: string; maxPages?: number; external?: boolean; docId?: string; revision?: string },
+      ) => {
+        await cmdIndexBuildUrl(url, {
+          out: opts.out,
+          maxPages: opts.maxPages,
+          external: opts.external,
+          docId: opts.docId || undefined,
+          revision: opts.revision || undefined,
+        });
+      },
+    );
 
   await program.parseAsync(argv, { from: "user" });
 }

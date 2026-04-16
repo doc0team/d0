@@ -1,0 +1,12 @@
+{
+  "name": "reg-document0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.3.3",
+    "d0": "file:.."
+  }
+}
