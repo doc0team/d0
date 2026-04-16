@@ -4,7 +4,7 @@ import { TextInput } from "@inkjs/ui";
 import type { D0Config } from "../core/config.js";
 import type { SearchHit } from "../core/search-engine.js";
 import type { ListDocUrlsOptions } from "../core/web-docs.js";
-import { listDocUrls, readDocUrl, resolveBrowseBaseUrl, searchDocUrls } from "../core/web-docs.js";
+import { isUrlLike, listDocUrls, readDocUrl, resolveBrowseBaseUrl, searchDocUrls } from "../core/web-docs.js";
 import { NavHistory } from "./history.js";
 import { breadcrumb } from "./breadcrumbs.js";
 import { markdownToTerminal } from "../utils/markdown.js";
@@ -37,6 +37,13 @@ type Phase = "home" | "app";
 type HomeFocus = "menu" | "search";
 
 const URL_HOME_MENU = ["Browse documentation", "Quit"] as const;
+const POPULAR_DOC_SITES = [
+  "https://docs.anthropic.com",
+  "https://nextjs.org/docs",
+  "https://react.dev",
+  "https://docs.stack-auth.com",
+  "https://www.typescriptlang.org/docs",
+] as const;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -65,6 +72,106 @@ function navLabel(url: string, maxLen: number): string {
   } catch {
     return url.length <= maxLen ? url : `${url.slice(0, maxLen - 1)}…`;
   }
+}
+
+function UrlPickerHome({
+  config,
+  onOpenUrl,
+  onExit,
+}: {
+  config: D0Config;
+  onOpenUrl: (url: string) => void;
+  onExit: () => void;
+}): React.ReactElement {
+  const { exit } = useApp();
+  const { columns, rows } = useWindowSize();
+  const kb = config.keybindings;
+  const [homeFocus, setHomeFocus] = useState<HomeFocus>("menu");
+  const [homeSearchDraft, setHomeSearchDraft] = useState("");
+  const [homeMenuIndex, setHomeMenuIndex] = useState(0);
+  const menuOptions = useMemo(
+    () => [...POPULAR_DOC_SITES.map((u) => `Open ${new URL(u).hostname}`), "Quit"],
+    [],
+  );
+  const searchW = Math.min(64, Math.max(28, columns - 8));
+
+  useInput((input, key) => {
+    if (key.ctrl && input.toLowerCase() === "c") {
+      onExit();
+      exit();
+      return;
+    }
+    if (keyMatch(input, undefined, kb.quit)) {
+      onExit();
+      exit();
+      return;
+    }
+    if (key.shift && key.tab) {
+      setHomeFocus("menu");
+      return;
+    }
+    if (key.tab && !key.shift) {
+      setHomeFocus((f) => (f === "menu" ? "search" : "menu"));
+      return;
+    }
+    if (homeFocus === "search" && key.escape) {
+      setHomeFocus("menu");
+    }
+  });
+
+  useInput(
+    (input, key) => {
+      const last = menuOptions.length - 1;
+      if (input === kb.scroll_down || key.downArrow) {
+        setHomeMenuIndex((i) => clamp(i + 1, 0, last));
+        return;
+      }
+      if (input === kb.scroll_up || key.upArrow) {
+        setHomeMenuIndex((i) => clamp(i - 1, 0, last));
+        return;
+      }
+      if (key.return) {
+        if (homeMenuIndex >= POPULAR_DOC_SITES.length) {
+          onExit();
+          exit();
+          return;
+        }
+        onOpenUrl(POPULAR_DOC_SITES[homeMenuIndex]!);
+      }
+    },
+    { isActive: homeFocus === "menu" },
+  );
+
+  return (
+    <Box flexDirection="column" width={columns} height={rows} padding={1}>
+      <Box flexDirection="column" flexGrow={1} minHeight={0} width="100%" justifyContent="center" alignItems="center">
+        <HomeLanding
+          subtitle={"Popular documentation sites\nPick one or enter any docs URL below"}
+          options={menuOptions}
+          selectedIndex={homeMenuIndex}
+          searchSlot={
+            <HomeSearchField
+              width={searchW}
+              focused={homeFocus === "search"}
+              draft={homeSearchDraft}
+              onDraftChange={setHomeSearchDraft}
+              onSubmit={(value) => {
+                const t = value.trim();
+                if (!t) return;
+                if (!isUrlLike(t)) return;
+                onOpenUrl(t);
+              }}
+              remountKey="url-launch-search"
+              unfocusedHint="Type docs URL then Enter (Tab to edit)"
+            />
+          }
+        />
+      </Box>
+      <Box flexShrink={0} marginTop={1}>
+        <KeyBar width={Math.max(40, columns - 2)} items={homeMenuKeyHints(kb, { withSearchBar: true })} />
+      </Box>
+    </Box>
+  );
 }
 
 function UrlHomePanel({
@@ -832,6 +939,34 @@ export async function runUrlBrowseTui(
 ): Promise<void> {
   await new Promise<void>((resolve) => {
     render(<UrlBrowseApp startUrl={startUrl} config={config} listOpts={listOpts} onExit={resolve} />, {
+      alternateScreen: true,
+      exitOnCtrlC: true,
+    });
+  });
+}
+
+export async function runUrlBrowseHomeTui(
+  config: D0Config,
+  listOpts?: ListDocUrlsOptions,
+): Promise<void> {
+  function UrlLaunchShell({ onExit }: { onExit: () => void }): React.ReactElement {
+    const [targetUrl, setTargetUrl] = useState<string | null>(null);
+    if (targetUrl) {
+      return (
+        <UrlBrowseApp
+          key={targetUrl}
+          startUrl={targetUrl}
+          config={config}
+          listOpts={listOpts}
+          onExit={onExit}
+        />
+      );
+    }
+    return <UrlPickerHome config={config} onOpenUrl={setTargetUrl} onExit={onExit} />;
+  }
+
+  await new Promise<void>((resolve) => {
+    render(<UrlLaunchShell onExit={resolve} />, {
       alternateScreen: true,
       exitOnCtrlC: true,
     });

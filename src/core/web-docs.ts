@@ -367,7 +367,19 @@ export async function listDocUrls(input: string, opts?: ListDocUrlsOptions): Pro
 
   for (const u of llmsRaw) {
     try {
-      if (includeExternal || new URL(u).origin === origin) merged.add(u);
+      if (includeExternal) {
+        merged.add(u);
+        continue;
+      }
+      const parsed = new URL(u);
+      if (parsed.origin !== origin) continue;
+      /**
+       * Some sites publish a full-doc dump in `llms.txt` where inline links are not canonical doc routes
+       * (e.g. `/apps/*`, `/getting-started`, marketing links). When sitemap exists, trust sitemap for
+       * canonical URL set and only keep llms URLs that are also present there.
+       */
+      if (sitemapMatchKeys.size > 0 && !sitemapMatchKeys.has(pageUrlMatchKey(u))) continue;
+      merged.add(u);
     } catch {
       /* skip */
     }

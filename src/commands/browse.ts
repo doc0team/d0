@@ -47,3 +47,17 @@ export async function cmdBrowseUrl(
   const { runUrlBrowseTui } = await import("../tui/url-app.js");
   await runUrlBrowseTui(url, config, listOpts);
 }
+
+export async function cmdBrowseUrlHome(
+  opts: { external?: boolean; ink?: boolean },
+  config: D0Config,
+): Promise<void> {
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    console.error("d0 browse: interactive browse requires a TTY.");
+    process.exitCode = 1;
+    return;
+  }
+  const listOpts: ListDocUrlsOptions | undefined = opts.external ? { llmsIncludeExternal: true } : undefined;
+  const { runUrlBrowseHomeTui } = await import("../tui/url-app.js");
+  await runUrlBrowseHomeTui(config, listOpts);
+}

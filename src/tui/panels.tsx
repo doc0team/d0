@@ -1,20 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { TextInput } from "@inkjs/ui";
 import { Box, Text } from "ink";
+import figlet from "figlet";
 import type { Keybindings } from "../core/config.js";
 import { tuiChrome as chrome } from "./chrome.js";
-
-/**
- * FIGlet-style `d0` wordmark — **keep in sync with `text.txt`** at the repo root (paste non-empty art lines only).
- */
-const D0_ASCII_LOGO_LINES: readonly string[] = [
-  "██████╗  ██████╗ ",
-  "██╔══██╗██╔═████╗",
-  "██║  ██║██║██╔██║",
-  "██║  ██║████╔╝██║",
-  "██████╔╝╚██████╔╝",
-  "╚═════╝  ╚═════╝ ",
-];
 
 /** HSL (h 0–360, s/l 0–100) → `#rrggbb` for truecolor terminals. */
 function hslToHex(h: number, s: number, l: number): string {
@@ -48,40 +37,162 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 
-/** Warm coral / peach / soft amber — Claude Code–ish accents, not full-spectrum. */
-function pastelColor(rowIndex: number, colIndex: number, tick: number): string {
-  const t = tick * 0.45 + rowIndex * 1.9 + colIndex * 1.25;
-  const slow = Math.sin(t * 0.055);
-  const shimmer = Math.sin((rowIndex + colIndex) * 0.35 + tick * 0.09) * 0.35;
-  const hue = 24 + slow * 14 + shimmer * 5;
-  const sat = 34 + slow * 5 + shimmer * 4;
-  const lit = 78 + slow * 4 + shimmer * 3;
+type LogoTheme = {
+  font: string;
+  baseHue: number;
+  hueWobble: number;
+  saturation: number;
+};
+const LOGO_ANIM_EPOCH_MS = Date.now();
+
+function activeLogoTheme(now: Date): LogoTheme {
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+  // Halloween season (Oct 20 - Nov 2): spooky fonts + orange palette.
+  if ((m === 10 && d >= 20) || (m === 11 && d <= 2)) {
+    return {
+      font: "Poison",
+      baseHue: 26,
+      hueWobble: 12,
+      saturation: 78,
+    };
+  }
+  // Winter holidays (Dec 20 - Jan 3): denser fonts + cool winter blues.
+  if ((m === 12 && d >= 20) || (m === 1 && d <= 3)) {
+    return {
+      font: "Block",
+      baseHue: 200,
+      hueWobble: 14,
+      saturation: 45,
+    };
+  }
+  return {
+    font: "Roman",
+    baseHue: 24,
+    hueWobble: 10,
+    saturation: 38,
+  };
+}
+
+const SCRAMBLE_CHARS = ["▒", "░", "▓", "#", "*", "+", "=", ".", ":"];
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function stableNoise(row: number, col: number): number {
+  const x = Math.sin(row * 127.1 + col * 311.7 + 19.19) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function animateGlyph(ch: string, row: number, col: number, tick: number, revealProgress: number): string {
+  if (ch === " ") return " ";
+  const gate = stableNoise(row, col);
+  const scrambleIx = Math.abs((row * 17 + col * 31 + tick * 3) % SCRAMBLE_CHARS.length);
+  const scramble = SCRAMBLE_CHARS[scrambleIx]!;
+  if (revealProgress >= 1) return ch;
+  return gate <= revealProgress ? ch : scramble;
+}
+
+function logoColor(rowIndex: number, colIndex: number, tick: number, gradientActive: boolean, theme: LogoTheme): string {
+  if (!gradientActive) {
+    return hslToHex(theme.baseHue, Math.max(18, theme.saturation - 18), 68);
+  }
+  const t = tick * 0.42 + rowIndex * 1.6 + colIndex * 1.15;
+  const shimmer = Math.sin(t * 0.07) * 0.55;
+  const hue = theme.baseHue + shimmer * theme.hueWobble;
+  const sat = theme.saturation + shimmer * 6;
+  const lit = 78 + shimmer * 4;
   return hslToHex(hue, sat, lit);
 }
 
-/** Animated pastel gradient on the block wordmark (truecolor). */
+function renderFigletLines(text: string, font: string): string[] {
+  const render = (f: string): string[] =>
+    figlet
+      .textSync(text, {
+        font: f,
+        horizontalLayout: "default",
+        verticalLayout: "default",
+        whitespaceBreak: true,
+      })
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\s+$/g, ""))
+      .filter((l) => l.length > 0);
+
+  try {
+    return render(font);
+  } catch {
+    // Never fail the TUI on a missing/invalid font name.
+    try {
+      return render("Standard");
+    } catch {
+      return [text];
+    }
+  }
+}
+
+function padLinesToFrame(lines: string[], frameW: number, frameH: number): string[] {
+  const safeW = Math.max(1, frameW);
+  const safeH = Math.max(1, frameH);
+  const trimmed = lines.map((l) => (l.length <= safeW ? l : l.slice(0, safeW)));
+  const topPad = Math.max(0, Math.floor((safeH - trimmed.length) / 2));
+  const botPad = Math.max(0, safeH - trimmed.length - topPad);
+  const out: string[] = [];
+  for (let i = 0; i < topPad; i++) out.push(" ".repeat(safeW));
+  for (const l of trimmed) {
+    const left = Math.max(0, Math.floor((safeW - l.length) / 2));
+    const right = Math.max(0, safeW - l.length - left);
+    out.push(`${" ".repeat(left)}${l}${" ".repeat(right)}`);
+  }
+  for (let i = 0; i < botPad; i++) out.push(" ".repeat(safeW));
+  return out.slice(0, safeH);
+}
+
+/** Animated figlet logo: fade-in/out, then next font. */
 function TextAsciiD0Logo(): React.ReactElement {
+  const FRAME_MS = 80;
+  const REVEAL_MS = 1800;
   const [tick, setTick] = useState(0);
+  const [theme, setTheme] = useState<LogoTheme>(() => activeLogoTheme(new Date()));
+
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), 110);
+    const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), FRAME_MS);
     return () => clearInterval(id);
   }, []);
 
-  const lines = D0_ASCII_LOGO_LINES.map((l) => l.trimEnd());
-  const w = Math.max(1, ...lines.map((l) => [...l].length));
-  const padded = lines.map((l) => {
-    const len = [...l].length;
-    const pad = w - len;
-    const left = Math.floor(pad / 2);
-    return `${" ".repeat(left)}${l}${" ".repeat(pad - left)}`;
-  });
+  useEffect(() => {
+    const id = setInterval(() => setTheme(activeLogoTheme(new Date())), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const elapsedMs = Math.max(0, Date.now() - LOGO_ANIM_EPOCH_MS);
+  const revealProgress = clamp01(elapsedMs / REVEAL_MS);
+  const gradientActive = revealProgress >= 1;
+  const font = theme.font;
+  const renderedByFont = useMemo(() => [{ font, lines: renderFigletLines("doc0", font) }], [font]);
+  const frameW = useMemo(
+    () => Math.max(1, ...renderedByFont.flatMap((f) => f.lines.map((l) => l.length))),
+    [renderedByFont],
+  );
+  const frameH = useMemo(
+    () => Math.max(1, ...renderedByFont.map((f) => f.lines.length)),
+    [renderedByFont],
+  );
+  const rawLines = useMemo(
+    () => renderedByFont.find((f) => f.font === font)?.lines ?? renderFigletLines("doc0", font),
+    [renderedByFont, font],
+  );
+  const padded = useMemo(() => padLinesToFrame(rawLines, frameW, frameH), [rawLines, frameW, frameH]);
+  const animated = padded.map((row, ri) =>
+    [...row].map((ch, ci) => animateGlyph(ch, ri, ci, tick, revealProgress)).join(""),
+  );
 
   return (
     <Box flexDirection="column" alignItems="center">
-      {padded.map((row, ri) => (
+      {animated.map((row, ri) => (
         <Box key={`d0r-${ri}`} flexDirection="row">
           {[...row].map((ch, ci) => (
-            <Text key={`d0c-${ri}-${ci}`} color={pastelColor(ri, ci, tick)}>
+            <Text key={`d0c-${ri}-${ci}`} color={logoColor(ri, ci, tick, gradientActive, theme)}>
               {ch === " " ? " " : ch}
             </Text>
           ))}
@@ -314,6 +425,7 @@ export function HomeLanding({
   /** e.g. `TextInput` for home search — place between subtitle and menu. */
   searchSlot?: React.ReactNode;
 }): React.ReactElement {
+  const menuRows = Math.max(options.length, 2);
   return (
     <Box flexGrow={1} flexDirection="column" justifyContent="center" alignItems="center" width="100%">
       <TextAsciiD0Logo />
@@ -325,14 +437,13 @@ export function HomeLanding({
           </Box>
         ))}
       </Box>
-      {searchSlot ? (
-        <Box marginY={1} flexDirection="column" width="100%" justifyContent="center" alignItems="center">
-          {searchSlot}
-        </Box>
-      ) : null}
+      {/* Reserve search slot height to avoid mount-time layout shift when TextInput appears. */}
+      <Box marginY={1} minHeight={3} flexDirection="column" width="100%" justifyContent="center" alignItems="center">
+        {searchSlot ?? <Text color={chrome.label}> </Text>}
+      </Box>
       {options.length > 0 ? (
         <>
-          <Box marginY={searchSlot ? 1 : 2} />
+          <Box marginY={1} />
           <Box flexDirection="column" width="100%" alignItems="stretch">
             {options.map((label, i) => (
               <Box key={`${label}-${i}`} width="100%" justifyContent="center">
@@ -344,7 +455,18 @@ export function HomeLanding({
             ))}
           </Box>
         </>
-      ) : null}
+      ) : (
+        <>
+          <Box marginY={1} />
+          <Box flexDirection="column" width="100%" alignItems="stretch">
+            {Array.from({ length: menuRows }).map((_, i) => (
+              <Box key={`menu-ph-${i}`} width="100%" justifyContent="center">
+                <Text color={chrome.label}> </Text>
+              </Box>
+            ))}
+          </Box>
+        </>
+      )}
     </Box>
   );
 }

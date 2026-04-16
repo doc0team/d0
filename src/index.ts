@@ -7,7 +7,7 @@ import { cmdUpdate } from "./commands/update.js";
 import { cmdLsGlobal, cmdLsBundle, cmdLsUrl } from "./commands/ls.js";
 import { cmdRead, cmdReadUrl } from "./commands/read.js";
 import { cmdSearch, cmdSearchUrl } from "./commands/search.js";
-import { cmdBrowse, cmdBrowseUrl } from "./commands/browse.js";
+import { cmdBrowse, cmdBrowseUrl, cmdBrowseUrlHome } from "./commands/browse.js";
 import { cmdInit } from "./commands/init.js";
 import { cmdBuild } from "./commands/build.js";
 import { cmdPublish } from "./commands/publish.js";
@@ -205,8 +205,7 @@ async function main(): Promise<void> {
     .action(async (target: string | undefined, opts: { external?: boolean; ink?: boolean }) => {
       const t = target?.trim();
       if (!t) {
-        console.error("Usage: d0 browse <@scope/pkg|https://docs.example.com>");
-        process.exitCode = 1;
+        await cmdBrowseUrlHome(opts, config);
         return;
       }
       if (isUrlLike(t)) await cmdBrowseUrl(t, opts, config);
