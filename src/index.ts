@@ -13,6 +13,7 @@ import { cmdBuild } from "./commands/build.js";
 import { cmdPublish } from "./commands/publish.js";
 import { cmdImport } from "./commands/import.js";
 import { cmdMcp } from "./commands/mcp.js";
+import { cmdBrowseOpenTui } from "./commands/opentui.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -28,6 +29,7 @@ const GLOBAL = new Set([
   "read",
   "search",
   "browse",
+  "browse-opentui",
   "help",
   "-h",
   "--help",
@@ -210,6 +212,13 @@ async function main(): Promise<void> {
       }
       if (isUrlLike(t)) await cmdBrowseUrl(t, opts, config);
       else await cmdBrowse(t, config, opts);
+    });
+
+  program
+    .command("browse-opentui")
+    .description("experimental secondary TUI powered by OpenTUI (requires Bun)")
+    .action(async () => {
+      await cmdBrowseOpenTui();
     });
 
   program

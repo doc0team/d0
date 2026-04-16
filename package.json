@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "node --import tsx src/index.ts",
+    "opentui:dev": "bun src/opentui-browser.ts",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build"
   },
@@ -35,6 +36,7 @@
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@opentui/core": "^0.1.99",
     "@shikijs/cli": "^4.0.2",
     "chalk": "^5.4.1",
     "cheerio": "^1.2.0",

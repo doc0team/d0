@@ -16,6 +16,7 @@ const D0_DIR = ".d0";
 const BUNDLES = "bundles";
 const BIN = "bin";
 const INDEX = "index.json";
+const DOCS_REGISTRY = "docs-registry.json";
 
 export function d0Home(): string {
   return path.join(os.homedir(), D0_DIR);
@@ -31,6 +32,10 @@ export function binDir(): string {
 
 export function indexPath(): string {
   return path.join(d0Home(), INDEX);
+}
+
+export function docsRegistryPath(): string {
+  return path.join(d0Home(), DOCS_REGISTRY);
 }
 
 interface IndexFile {
