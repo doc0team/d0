@@ -19,6 +19,7 @@ const INDEX = "index.json";
 const DOCS_REGISTRY = "docs-registry.json";
 const CACHE_DIR = "cache";
 const GLOBAL_DOCS_REGISTRY_CACHE = "global-docs-registry.json";
+const DOCS_STORE = "docs-store";
 
 export function d0Home(): string {
   return path.join(os.homedir(), D0_DIR);
@@ -46,6 +47,10 @@ export function cacheDir(): string {
 
 export function globalDocsRegistryCachePath(): string {
   return path.join(cacheDir(), GLOBAL_DOCS_REGISTRY_CACHE);
+}
+
+export function docsStoreDir(): string {
+  return path.join(d0Home(), DOCS_STORE);
 }
 
 interface IndexFile {

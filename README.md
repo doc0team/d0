@@ -53,6 +53,8 @@ d0 ls --json
 | `d0 publish [dir]` | Stub until registry is live |
 | `d0 import <src> --name @scope/pkg [--out dir]` | Import markdown tree or single file |
 | `d0 registry sync` | Refresh global registry metadata cache only (no bundle installs) |
+| `d0 ingest url <url>` | Ingest discovered pages into `~/.d0/docs-store/<id>/` (metadata + normalized markdown) |
+| `d0 ingest bundle <bundle>` | Ingest an installed bundle into the local docs store |
 | `d0 mcp` | MCP server on stdio (`search_docs`, `list_docs`, `open_docs`, `list_nodes`, `read_node`, `search_nodes`) |
 
 Flags: `--json` and `--raw` where documented; without a TTY, `read` defaults to raw markdown and `search`/`ls` default to JSON when `outputFormat` is `auto` in `~/.d0rc`.
@@ -68,7 +70,7 @@ Configure your client to run `d0 mcp`.
 Tool flow:
 
 1. Discover docs: `search_docs` or `list_docs`
-2. Open a source: `open_docs` (returns `doc_id`)
+2. Open a source: `open_docs` (returns `doc_id`; optional `ingest: true` builds/uses `~/.d0/docs-store`)
 3. Traverse/read/search within that source: `list_nodes`, `read_node`, `search_nodes`
 
 Registry entries are resolved from:

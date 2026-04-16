@@ -15,6 +15,7 @@ import { cmdImport } from "./commands/import.js";
 import { cmdMcp } from "./commands/mcp.js";
 import { cmdBrowseOpenTui } from "./commands/opentui.js";
 import { cmdRegistrySync } from "./commands/registry.js";
+import { cmdIngestBundle, cmdIngestRegistryCache, cmdIngestUrl } from "./commands/ingest.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -32,6 +33,7 @@ const GLOBAL = new Set([
   "browse",
   "browse-opentui",
   "registry",
+  "ingest",
   "help",
   "-h",
   "--help",
@@ -265,6 +267,31 @@ async function main(): Promise<void> {
     .description("refresh global docs registry metadata cache")
     .action(async () => {
       await cmdRegistrySync(config);
+    });
+
+  const ingest = program.command("ingest").description("ingest docs into local structured store (~/.d0/docs-store)");
+  ingest
+    .command("url")
+    .argument("<url>", "docs site/page URL")
+    .option("--external", "include off-site URLs from llms.txt when discovering pages")
+    .option("--max-pages <n>", "max pages to fetch", (v) => Number(v), 200)
+    .option("--json", "JSON output")
+    .action(async (url: string, opts: { external?: boolean; maxPages?: number; json?: boolean }) => {
+      await cmdIngestUrl(url, opts, config);
+    });
+  ingest
+    .command("bundle")
+    .argument("<bundle>", "installed bundle name")
+    .option("--json", "JSON output")
+    .action(async (bundle: string, opts: { json?: boolean }) => {
+      await cmdIngestBundle(bundle, opts, config);
+    });
+  ingest
+    .command("registry-cache")
+    .description("ingest entries from ~/.d0/cache/global-docs-registry.json (not implemented)")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdIngestRegistryCache(opts, config);
     });
 
   await program.parseAsync(argv, { from: "user" });

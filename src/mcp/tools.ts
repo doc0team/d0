@@ -5,6 +5,11 @@ import { loadBundle, listSlugs, readPageMarkdown } from "../core/bundle.js";
 import { buildIndex, searchIndex } from "../core/search-engine.js";
 import { isUrlLike, listDocUrls, readDocUrl, searchDocUrls } from "../core/web-docs.js";
 import { loadConfig } from "../core/config.js";
+import { readDocStoreManifest, readDocStorePage, storeIdForBundle, storeIdForUrl } from "../core/doc-store.js";
+import { listDocStoreChildren, docStorePagePathKeyForUrl } from "../core/doc-store-nav.js";
+import { ingestUrlToDocStore } from "../core/ingest-url.js";
+import { ingestBundleToDocStore } from "../core/ingest-bundle.js";
+import { searchDocStore } from "../core/doc-store-search.js";
 import {
   listDocsRegistryEntries,
   resolveDocsEntryWithFallback,
@@ -20,6 +25,9 @@ type OpenDocSession = {
   provider: "bundle" | "web";
   registryRevision?: string;
   fetchedAt: string;
+  storeId?: string;
+  ingestRequested?: boolean;
+  ingestError?: string;
 };
 
 type ListNodeItem = {
@@ -106,6 +114,40 @@ function listUrlNodes(urls: string[], nodePath: string): ListNodeItem[] {
   return [...children.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
+async function listDocStoreNodeItems(session: OpenDocSession, nodePath: string): Promise<ListNodeItem[] | null> {
+  if (!session.storeId) return null;
+  const manifest = await readDocStoreManifest(session.storeId);
+  if (!manifest) return null;
+  const children = listDocStoreChildren(manifest, nodePath);
+  return children.map((ch) => ({
+    path: ch.path,
+    title: ch.title,
+    kind: ch.children.length > 0 ? "dir" : ch.pageRef ? "page" : "dir",
+  }));
+}
+
+async function ensureIngestedSession(session: OpenDocSession): Promise<void> {
+  if (!session.ingestRequested || session.storeId) return;
+  try {
+    if (session.provider === "web") {
+      const manifest = await ingestUrlToDocStore(session.entry.source);
+      session.storeId = manifest.storeId;
+      return;
+    }
+    if (session.provider === "bundle") {
+      const ref = await findInstalledBundle(session.entry.source);
+      if (!ref) {
+        session.ingestError = "bundle not installed; cannot ingest to local store";
+        return;
+      }
+      const manifest = await ingestBundleToDocStore(ref.root);
+      session.storeId = manifest.storeId;
+    }
+  } catch (e) {
+    session.ingestError = e instanceof Error ? e.message : String(e);
+  }
+}
+
 function getSession(docId: string): OpenDocSession | null {
   const session = sessions.get(docId);
   return session ?? null;
@@ -185,9 +227,13 @@ export function registerD0Tools(server: McpServer): void {
       description: "Open documentation by identifier and return a doc_id for subsequent node operations.",
       inputSchema: {
         package: z.string().describe("Docs identifier, alias, or topic"),
+        ingest: z
+          .boolean()
+          .optional()
+          .describe("If true, ingest into local ~/.d0/docs-store for structured list/read/search"),
       },
     },
-    async ({ package: packageQuery }) => {
+    async ({ package: packageQuery, ingest }) => {
       const config = await loadConfig();
       const resolved = await resolveDocsEntryWithFallback(config, packageQuery);
       if (!resolved) {
@@ -200,14 +246,23 @@ export function registerD0Tools(server: McpServer): void {
       const entry = resolved.entry;
       const docId = docIdFor(entry);
       const provider: "bundle" | "web" = entry.sourceType === "bundle" ? "bundle" : "web";
-      sessions.set(docId, {
+      const session: OpenDocSession = {
         docId,
         entry,
         provider,
         resolvedFrom: resolved.resolvedFrom,
         registryRevision: resolved.registryRevision,
         fetchedAt: resolved.fetchedAt,
-      });
+        ingestRequested: ingest === true,
+      };
+      if (!ingest) {
+        const existingId = provider === "web" ? storeIdForUrl(entry.source) : storeIdForBundle(entry.source);
+        const existing = await readDocStoreManifest(existingId);
+        if (existing) session.storeId = existing.storeId;
+      } else {
+        await ensureIngestedSession(session);
+      }
+      sessions.set(docId, session);
       return {
         content: [
           {
@@ -224,6 +279,9 @@ export function registerD0Tools(server: McpServer): void {
               provider,
               registryRevision: resolved.registryRevision,
               fetchedAt: resolved.fetchedAt,
+              store_id: session.storeId,
+              ingest: ingest === true,
+              ingestError: session.ingestError,
             }),
           },
         ],
@@ -246,6 +304,34 @@ export function registerD0Tools(server: McpServer): void {
         return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
       }
       const nodePath = normalizeNodePath(path);
+      if (session.ingestRequested && session.ingestError && !session.storeId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ error: "ingest failed", detail: session.ingestError, doc_id }),
+            },
+          ],
+        };
+      }
+      const storeNodes = await listDocStoreNodeItems(session, nodePath);
+      if (storeNodes) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                doc_id,
+                path: nodePath,
+                provider: session.provider,
+                resolvedFrom: session.resolvedFrom,
+                store_id: session.storeId,
+                nodes: storeNodes,
+              }),
+            },
+          ],
+        };
+      }
       if (session.entry.sourceType === "bundle") {
         const ref = await findInstalledBundle(session.entry.source);
         if (!ref) {
@@ -312,6 +398,92 @@ export function registerD0Tools(server: McpServer): void {
         return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
       }
       const nodePath = normalizeNodePath(path);
+      if (session.ingestRequested && session.ingestError && !session.storeId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ error: "ingest failed", detail: session.ingestError, doc_id }),
+            },
+          ],
+        };
+      }
+      if (session.storeId) {
+        const manifest = await readDocStoreManifest(session.storeId);
+        if (manifest) {
+          if (session.provider === "web" && (nodePath.startsWith("http://") || nodePath.startsWith("https://"))) {
+            const key = docStorePagePathKeyForUrl(manifest, nodePath);
+            if (!key) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify({ error: "page not in store", path: nodePath, store_id: session.storeId }),
+                  },
+                ],
+              };
+            }
+            const rec = manifest.pages[key];
+            if (!rec) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify({ error: "unknown store page", path: key, store_id: session.storeId }),
+                  },
+                ],
+              };
+            }
+            const content = await readDocStorePage(session.storeId, rec.relPath);
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    doc_id,
+                    path: nodePath,
+                    title: rec.title,
+                    provider: session.provider,
+                    resolvedFrom: session.resolvedFrom,
+                    store_id: session.storeId,
+                    content,
+                  }),
+                },
+              ],
+            };
+          }
+
+          const slug = nodePath.replace(/^\//, "");
+          const rec = manifest.pages[`/${slug}`];
+          if (!rec) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({ error: "unknown path", path: nodePath, store_id: session.storeId }),
+                },
+              ],
+            };
+          }
+          const content = await readDocStorePage(session.storeId, rec.relPath);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  doc_id,
+                  path: nodePath,
+                  title: rec.title,
+                  provider: session.provider,
+                  resolvedFrom: session.resolvedFrom,
+                  store_id: session.storeId,
+                  content,
+                }),
+              },
+            ],
+          };
+        }
+      }
       if (session.entry.sourceType === "bundle") {
         const slug = nodePath.replace(/^\//, "");
         const ref = await findInstalledBundle(session.entry.source);
@@ -397,6 +569,40 @@ export function registerD0Tools(server: McpServer): void {
       const session = getSession(doc_id);
       if (!session) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
+      }
+      if (session.ingestRequested && session.ingestError && !session.storeId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ error: "ingest failed", detail: session.ingestError, doc_id }),
+            },
+          ],
+        };
+      }
+      if (session.storeId) {
+        const manifest = await readDocStoreManifest(session.storeId);
+        if (manifest) {
+          const hits = await searchDocStore(manifest, query);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  doc_id,
+                  query,
+                  store_id: session.storeId,
+                  hits: hits.map((hit) => ({
+                    path: hit.path,
+                    title: hit.title,
+                    snippet: hit.snippet,
+                    score: hit.score,
+                  })),
+                }),
+              },
+            ],
+          };
+        }
       }
       if (session.entry.sourceType === "bundle") {
         const ref = await findInstalledBundle(session.entry.source);
