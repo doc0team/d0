@@ -15,9 +15,7 @@ import { cmdImport } from "./commands/import.js";
 import { cmdMcp } from "./commands/mcp.js";
 import { cmdMcpInstall } from "./commands/mcp-install.js";
 import { cmdBrowseOpenTui } from "./commands/opentui.js";
-import { cmdRegistrySync } from "./commands/registry.js";
-import { cmdIngestBundle, cmdIngestRegistryCache, cmdIngestUrl } from "./commands/ingest.js";
-import { cmdIndexBuildUrl } from "./commands/index-remote.js";
+import { cmdIngestBundle, cmdIngestUrl } from "./commands/ingest.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -34,9 +32,7 @@ const GLOBAL = new Set([
   "search",
   "browse",
   "browse-opentui",
-  "registry",
   "ingest",
-  "index",
   "help",
   "-h",
   "--help",
@@ -273,15 +269,6 @@ async function main(): Promise<void> {
     await cmdMcp();
   });
 
-  program
-    .command("registry")
-    .description("registry operations")
-    .command("sync")
-    .description("refresh global docs registry metadata cache")
-    .action(async () => {
-      await cmdRegistrySync(config);
-    });
-
   const ingest = program.command("ingest").description("ingest docs into local structured store (~/.d0/docs-store)");
   ingest
     .command("url")
@@ -304,39 +291,6 @@ async function main(): Promise<void> {
     .action(async (bundle: string, opts: { json?: boolean }) => {
       await cmdIngestBundle(bundle, opts, config);
     });
-  ingest
-    .command("registry-cache")
-    .description("ingest entries from ~/.d0/cache/global-docs-registry.json (not implemented)")
-    .option("--json", "JSON output")
-    .action(async (opts: { json?: boolean }) => {
-      await cmdIngestRegistryCache(opts, config);
-    });
-
-  const indexCmd = program.command("index").description("pre-built remote search indexes (CDN-style) for fast MCP search");
-  indexCmd
-    .command("build-url")
-    .description("crawl discovery URLs, build a MiniSearch JSON payload (d0-remote-search-index-v1)")
-    .argument("<url>", "docs base URL")
-    .requiredOption("--out <file>", "output path for the JSON index file")
-    .option("--max-pages <n>", "max pages to include", (v) => Number(v), 500)
-    .option("--doc-id <id>", "registry doc id (e.g. stripe)", "")
-    .option("--revision <rev>", "revision string for cache busting", "")
-    .option("--external", "include off-site URLs from llms.txt when discovering pages")
-    .action(
-      async (
-        url: string,
-        opts: { out: string; maxPages?: number; external?: boolean; docId?: string; revision?: string },
-      ) => {
-        await cmdIndexBuildUrl(url, {
-          out: opts.out,
-          maxPages: opts.maxPages,
-          external: opts.external,
-          docId: opts.docId || undefined,
-          revision: opts.revision || undefined,
-        });
-      },
-    );
-
   await program.parseAsync(argv, { from: "user" });
 }
 

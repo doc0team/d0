@@ -1,5 +1,4 @@
 import type { D0Config } from "../core/config.js";
-import { globalDocsRegistryCachePath } from "../core/storage.js";
 import { ingestBundleToDocStore } from "../core/ingest-bundle.js";
 import { ingestUrlToDocStore, type IngestUrlOptions } from "../core/ingest-url.js";
 import { findInstalledBundle } from "../core/storage.js";
@@ -58,10 +57,4 @@ export async function cmdIngestBundle(
     console.error(`d0 ingest bundle: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
   }
-}
-
-export async function cmdIngestRegistryCache(_opts: { json?: boolean }, _config: D0Config): Promise<void> {
-  console.error("d0 ingest registry-cache is not implemented yet.");
-  console.error(`Global registry cache path: ${globalDocsRegistryCachePath()}`);
-  process.exitCode = 1;
 }

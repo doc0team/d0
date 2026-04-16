@@ -14,7 +14,6 @@ export async function buildDocStoreSearchIndex(manifest: DocStoreManifest): Prom
       slug: pathKey.replace(/^\//, ""),
       title: rec.title,
       body,
-      url: rec.url,
     });
   }
   const mini = new MiniSearch<SearchDocument>({
@@ -36,8 +35,11 @@ export async function searchDocStore(
   limit = 25,
 ): Promise<(SearchHit & { path: string })[]> {
   const mini = await buildDocStoreSearchIndex(manifest);
-  return searchIndex(mini, query, limit).map((hit) => ({
-    ...hit,
-    path: hit.pageUrl ?? `/${hit.slug}`,
-  }));
+  return searchIndex(mini, query, limit).map((hit) => {
+    const rec = manifest.pages[`/${hit.slug}`];
+    return {
+      ...hit,
+      path: rec?.url ?? `/${hit.slug}`,
+    };
+  });
 }

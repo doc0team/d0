@@ -7,8 +7,6 @@ export interface SearchDocument {
   slug: string;
   title: string;
   body: string;
-  /** Absolute page URL (remote pre-built indexes) so agents can pass it to read_node. */
-  url?: string;
 }
 
 export interface SearchHit {
@@ -16,15 +14,13 @@ export interface SearchHit {
   title: string;
   snippet: string;
   score?: number;
-  pageUrl?: string;
 }
 
-/** MiniSearch options used for doc-store search, bundle search, and remote downloadable indexes. */
-export const REMOTE_SEARCH_INDEX_MINI_OPTIONS = {
-  fields: ["slug", "title", "body", "url"] as const,
-  storeFields: ["slug", "title", "body", "url"] as const,
+const MINI_OPTIONS = {
+  fields: ["slug", "title", "body"] as const,
+  storeFields: ["slug", "title", "body"] as const,
   searchOptions: {
-    boost: { title: 3, slug: 2, body: 1, url: 2 },
+    boost: { title: 3, slug: 2, body: 1 },
     fuzzy: 0.2,
     prefix: true,
   },
@@ -68,12 +64,12 @@ export async function buildIndex(bundle: LoadedBundle): Promise<MiniSearch<Searc
     docs.push({ id: slug, slug, title, body });
   }
   const mini = new MiniSearch<SearchDocument>({
-    fields: [...REMOTE_SEARCH_INDEX_MINI_OPTIONS.fields],
-    storeFields: [...REMOTE_SEARCH_INDEX_MINI_OPTIONS.storeFields],
+    fields: [...MINI_OPTIONS.fields],
+    storeFields: [...MINI_OPTIONS.storeFields],
     searchOptions: {
-      boost: { ...REMOTE_SEARCH_INDEX_MINI_OPTIONS.searchOptions.boost },
-      fuzzy: REMOTE_SEARCH_INDEX_MINI_OPTIONS.searchOptions.fuzzy,
-      prefix: REMOTE_SEARCH_INDEX_MINI_OPTIONS.searchOptions.prefix,
+      boost: { ...MINI_OPTIONS.searchOptions.boost },
+      fuzzy: MINI_OPTIONS.searchOptions.fuzzy,
+      prefix: MINI_OPTIONS.searchOptions.prefix,
     },
   });
   mini.addAll(docs);
@@ -89,13 +85,11 @@ export function searchIndex(
   const results = mini.search(query, { combineWith: "AND" });
   return results.slice(0, limit).map((r) => {
     const body = String(r.body ?? "");
-    const pageUrl = r.url != null && String(r.url).trim() ? String(r.url).trim() : undefined;
     return {
       slug: String(r.slug),
       title: String(r.title),
       snippet: snippetAround(body, query),
       score: typeof r.score === "number" ? r.score : undefined,
-      pageUrl,
     };
   });
 }

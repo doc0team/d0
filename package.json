@@ -5,8 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
-    "./build-remote-index": "./dist/commands/index-remote.js"
+    ".": "./dist/index.js"
   },
   "bin": {
     "d0": "dist/index.js"

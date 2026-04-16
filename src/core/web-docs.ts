@@ -304,6 +304,69 @@ async function listFromLlmsTxt(base: URL): Promise<string[]> {
   return [];
 }
 
+/** Where to fetch llms-full.txt (same resolution rules as llms.txt). */
+function llmsFullTxtFetchUrls(base: URL): string[] {
+  const root = new URL("/llms-full.txt", base).toString();
+  const beside = new URL("llms-full.txt", base).toString();
+  return root === beside ? [root] : [root, beside];
+}
+
+export type LlmsFullChunk = { heading: string; body: string };
+export type LlmsFullTxt = { url: string; markdown: string; chunks: LlmsFullChunk[] };
+
+const llmsFullCache = new Map<string, { ts: number; value: LlmsFullTxt | null }>();
+const LLMS_FULL_TTL_MS = 30 * 60 * 1000;
+
+function splitLlmsFullIntoChunks(markdown: string): LlmsFullChunk[] {
+  const lines = markdown.split(/\r?\n/);
+  const chunks: LlmsFullChunk[] = [];
+  let currentHeading = "Introduction";
+  let buffer: string[] = [];
+  const flush = () => {
+    const body = buffer.join("\n").trim();
+    if (body) chunks.push({ heading: currentHeading, body });
+  };
+  for (const line of lines) {
+    const m = line.match(/^(#{1,3})\s+(.+?)\s*$/);
+    if (m) {
+      flush();
+      currentHeading = m[2]!.trim();
+      buffer = [line];
+      continue;
+    }
+    buffer.push(line);
+  }
+  flush();
+  return chunks;
+}
+
+/**
+ * Fetch `/llms-full.txt` (or `llms-full.txt` beside the base URL) and return the markdown plus
+ * heading-split chunks. Returns null if the site doesn't publish one. Cached for 30 min.
+ */
+export async function fetchLlmsFullTxt(input: string): Promise<LlmsFullTxt | null> {
+  const base = normalizeInputUrl(input);
+  const cacheKey = `${base.origin}${base.pathname}`;
+  const cached = llmsFullCache.get(cacheKey);
+  if (cached && now() - cached.ts <= LLMS_FULL_TTL_MS) return cached.value;
+
+  for (const url of llmsFullTxtFetchUrls(base)) {
+    try {
+      const text = await fetchText(url);
+      const trimmed = text.trim();
+      if (!trimmed || looksLikeHtmlDocument(trimmed)) continue;
+      const chunks = splitLlmsFullIntoChunks(trimmed);
+      const value: LlmsFullTxt = { url, markdown: trimmed, chunks };
+      llmsFullCache.set(cacheKey, { ts: now(), value });
+      return value;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  llmsFullCache.set(cacheKey, { ts: now(), value: null });
+  return null;
+}
+
 function extractSitemapLocs(xml: string): string[] {
   const out: string[] = [];
   const re = /<loc>\s*([^<]+?)\s*<\/loc>/gi;

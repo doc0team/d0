@@ -52,7 +52,7 @@ export async function cmdAdd(
   }
 
   try {
-    const meta = await fetchBundleMeta(config, bundleArg);
+    const meta = await fetchBundleMeta(bundleArg);
     console.error(`Would install ${meta.name}@${meta.version} from ${meta.tarballUrl}`);
   } catch (e) {
     if (e instanceof RegistryError) {

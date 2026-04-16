@@ -18,7 +18,6 @@ const BIN = "bin";
 const INDEX = "index.json";
 const DOCS_REGISTRY = "docs-registry.json";
 const CACHE_DIR = "cache";
-const GLOBAL_DOCS_REGISTRY_CACHE = "global-docs-registry.json";
 const DOCS_STORE = "docs-store";
 
 export function d0Home(): string {
@@ -43,10 +42,6 @@ export function docsRegistryPath(): string {
 
 export function cacheDir(): string {
   return path.join(d0Home(), CACHE_DIR);
-}
-
-export function globalDocsRegistryCachePath(): string {
-  return path.join(cacheDir(), GLOBAL_DOCS_REGISTRY_CACHE);
 }
 
 export function docsStoreDir(): string {

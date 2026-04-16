@@ -3,37 +3,25 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { findInstalledBundle } from "../core/storage.js";
 import { loadBundle, listSlugs, readPageMarkdown } from "../core/bundle.js";
 import { buildIndex, searchIndex } from "../core/search-engine.js";
-import { isUrlLike, listDocUrls, readDocUrl, searchDocUrls } from "../core/web-docs.js";
-import { loadRemoteSearchIndex } from "../core/remote-search-index.js";
-import { loadConfig } from "../core/config.js";
-import { readDocStoreManifest, readDocStorePage, storeIdForBundle, storeIdForUrl } from "../core/doc-store.js";
+import {
+  fetchLlmsFullTxt,
+  isUrlLike,
+  listDocUrls,
+  readDocUrl,
+  searchDocUrls,
+  type LlmsFullChunk,
+} from "../core/web-docs.js";
+import { readDocStoreManifest, readDocStorePage, storeIdForUrl } from "../core/doc-store.js";
 import { listDocStoreChildren } from "../core/doc-store-nav.js";
-import { ingestUrlToDocStore, mergeWebDocPageIntoUrlDocStore, pathKeyForPageUrl } from "../core/ingest-url.js";
+import { mergeWebDocPageIntoUrlDocStore, pathKeyForPageUrl } from "../core/ingest-url.js";
 import { ingestBundleToDocStore } from "../core/ingest-bundle.js";
 import { searchDocStore } from "../core/doc-store-search.js";
 import {
   listDocsRegistryEntries,
-  resolveDocsEntryWithFallback,
-  resolveRegistrySearchIndexUrls,
+  resolveDocsRegistryEntry,
   searchDocsRegistry,
-  searchGlobalDocsRegistry,
   type DocsRegistryEntry,
 } from "../core/registry-client.js";
-
-type IngestMode = "none" | "lazy" | "full";
-
-type OpenDocSession = {
-  docId: string;
-  entry: DocsRegistryEntry;
-  resolvedFrom: "local" | "cache" | "global";
-  provider: "bundle" | "web";
-  registryRevision?: string;
-  fetchedAt: string;
-  storeId?: string;
-  /** `lazy` (default for URL docs): full discovery tree, fetch pages on read, persist in background. `full`: blocking ingest all pages first. */
-  ingestMode: IngestMode;
-  ingestError?: string;
-};
 
 type ListNodeItem = {
   path: string;
@@ -41,36 +29,28 @@ type ListNodeItem = {
   kind: "page" | "dir";
 };
 
-const sessions = new Map<string, OpenDocSession>();
-
-/** Live URL search from MCP: bounded fetches so Stripe-scale sites do not hang the tool (see D0_MCP_SEARCH_MAX_FETCH). */
+/** Cap on live MCP URL grep fetches so megasites don't hang the tool. Override via D0_MCP_SEARCH_MAX_FETCH. */
 function mcpLiveSearchMaxFetch(): number {
   const raw = process.env.D0_MCP_SEARCH_MAX_FETCH?.trim();
-  if (!raw) return 200;
+  if (!raw) return 80;
   const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n) || n <= 0) return 200;
+  if (!Number.isFinite(n) || n <= 0) return 80;
   return Math.min(n, 10_000);
 }
 
-/** Serialized writes per store so concurrent read_node merges do not corrupt manifest.json */
-const lazyUrlStoreWriteChain = new Map<string, Promise<void>>();
+/** Per-process cache of llms-full.txt content, keyed by registry id. */
+const llmsFullCache = new Map<string, { fetchedAt: number; chunks: LlmsFullChunk[] | null; markdown: string | null }>();
+const LLMS_FULL_TTL_MS = 30 * 60 * 1000;
 
-function scheduleLazyUrlStoreWrite(storeId: string, task: () => Promise<void>): void {
-  const prev = lazyUrlStoreWriteChain.get(storeId) ?? Promise.resolve();
+/** Per-storeId write chain so concurrent read_docs merges don't corrupt manifest.json. */
+const lazyStoreWriteChain = new Map<string, Promise<void>>();
+
+function scheduleLazyStoreWrite(storeId: string, task: () => Promise<void>): void {
+  const prev = lazyStoreWriteChain.get(storeId) ?? Promise.resolve();
   const next = prev.then(task).catch((err) => {
     console.error(`[d0 mcp] lazy doc store write failed (${storeId}):`, err);
   });
-  lazyUrlStoreWriteChain.set(storeId, next);
-}
-
-function parseIngestMode(ingest: boolean | "full" | undefined, provider: "bundle" | "web"): IngestMode {
-  if (ingest === false) return "none";
-  if (ingest === "full") return "full";
-  return provider === "web" ? "lazy" : "full";
-}
-
-function docIdFor(entry: DocsRegistryEntry): string {
-  return `doc:${entry.id}`;
+  lazyStoreWriteChain.set(storeId, next);
 }
 
 function normalizeNodePath(input: string | undefined): string {
@@ -79,6 +59,20 @@ function normalizeNodePath(input: string | undefined): string {
   if (/^https?:\/\//i.test(raw)) return raw;
   const normalized = raw.replace(/\\/g, "/");
   return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+function entryCard(entry: DocsRegistryEntry): Record<string, unknown> {
+  return {
+    id: entry.id,
+    aliases: entry.aliases,
+    source_type: entry.sourceType,
+    source: entry.source,
+    description: entry.description,
+  };
+}
+
+function text(obj: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(obj) }] };
 }
 
 function makeTitleFromPath(p: string): string {
@@ -128,7 +122,6 @@ function listUrlNodes(urls: string[], nodePath: string): ListNodeItem[] {
       children.set(raw, { path: raw, title: raw, kind: "page" });
       continue;
     }
-
     const remainder = prefix === "/" ? normalizedPath.slice(1) : normalizedPath.slice(prefix.length + 1);
     const [head, ...rest] = remainder.split("/").filter(Boolean);
     if (!head) {
@@ -145,613 +138,279 @@ function listUrlNodes(urls: string[], nodePath: string): ListNodeItem[] {
   return [...children.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function listDocStoreNodeItems(session: OpenDocSession, nodePath: string): Promise<ListNodeItem[] | null> {
-  if (!session.storeId) return null;
-  const manifest = await readDocStoreManifest(session.storeId);
-  if (!manifest) return null;
-  const children = listDocStoreChildren(manifest, nodePath);
-  return children.map((ch) => ({
-    path: ch.path,
-    title: ch.title,
-    kind: ch.children.length > 0 ? "dir" : ch.pageRef ? "page" : "dir",
-  }));
-}
-
-/** Use trie from local store only after blocking full ingest (URL) or bundle store. */
-function shouldListNodesFromStore(session: OpenDocSession): boolean {
-  if (!session.storeId) return false;
-  if (session.provider === "bundle") return true;
-  return session.provider === "web" && session.ingestMode === "full";
-}
-
-async function ensureIngestedSession(session: OpenDocSession): Promise<void> {
-  if (session.ingestMode !== "full" || session.storeId) return;
-  try {
-    if (session.provider === "web") {
-      const manifest = await ingestUrlToDocStore(session.entry.source);
-      session.storeId = manifest.storeId;
-      return;
-    }
-    if (session.provider === "bundle") {
-      const ref = await findInstalledBundle(session.entry.source);
-      if (!ref) {
-        session.ingestError = "bundle not installed; cannot ingest to local store";
-        return;
+async function treeForEntry(entry: DocsRegistryEntry, nodePath: string): Promise<ListNodeItem[]> {
+  if (entry.sourceType === "bundle") {
+    const storeId = await ensureBundleStoreId(entry);
+    if (storeId) {
+      const manifest = await readDocStoreManifest(storeId);
+      if (manifest) {
+        const children = listDocStoreChildren(manifest, nodePath);
+        return children.map((ch) => ({
+          path: ch.path,
+          title: ch.title,
+          kind: ch.children.length > 0 ? "dir" : ch.pageRef ? "page" : "dir",
+        }));
       }
-      const manifest = await ingestBundleToDocStore(ref.root);
-      session.storeId = manifest.storeId;
     }
-  } catch (e) {
-    session.ingestError = e instanceof Error ? e.message : String(e);
+    const ref = await findInstalledBundle(entry.source);
+    if (!ref) return [];
+    const bundle = await loadBundle(ref.root);
+    return listBundleNodes(listSlugs(bundle), nodePath);
+  }
+  const urls = await listDocUrls(entry.source);
+  return listUrlNodes(urls, nodePath);
+}
+
+async function ensureBundleStoreId(entry: DocsRegistryEntry): Promise<string | null> {
+  try {
+    const ref = await findInstalledBundle(entry.source);
+    if (!ref) return null;
+    const manifest = await ingestBundleToDocStore(ref.root);
+    return manifest.storeId;
+  } catch (err) {
+    console.error(`[d0 mcp] bundle ingest failed for ${entry.source}:`, err);
+    return null;
   }
 }
 
-function getSession(docId: string): OpenDocSession | null {
-  const session = sessions.get(docId);
-  return session ?? null;
+async function resolveOrFail(id: string): Promise<DocsRegistryEntry | null> {
+  return resolveDocsRegistryEntry(id);
+}
+
+async function getLlmsFullChunks(entry: DocsRegistryEntry): Promise<LlmsFullChunk[] | null> {
+  if (entry.sourceType !== "url") return null;
+  const now = Date.now();
+  const cached = llmsFullCache.get(entry.id);
+  if (cached && now - cached.fetchedAt <= LLMS_FULL_TTL_MS) return cached.chunks;
+  try {
+    const full = await fetchLlmsFullTxt(entry.source);
+    if (!full) {
+      llmsFullCache.set(entry.id, { fetchedAt: now, chunks: null, markdown: null });
+      return null;
+    }
+    llmsFullCache.set(entry.id, { fetchedAt: now, chunks: full.chunks, markdown: full.markdown });
+    return full.chunks;
+  } catch (err) {
+    console.error(`[d0 mcp] llms-full.txt fetch failed for ${entry.source}:`, err);
+    llmsFullCache.set(entry.id, { fetchedAt: now, chunks: null, markdown: null });
+    return null;
+  }
+}
+
+async function getLlmsFullMarkdown(entry: DocsRegistryEntry): Promise<string | null> {
+  await getLlmsFullChunks(entry);
+  return llmsFullCache.get(entry.id)?.markdown ?? null;
 }
 
 export function registerD0Tools(server: McpServer): void {
   server.registerTool(
-    "search_docs",
+    "find_docs",
     {
-      description: "Find docs sources by identifier, alias, or description.",
+      description:
+        "Find documentation sources in the registry. Returns matching entries plus — for the top match — the root tree and whether an llms-full.txt fast path is available. One call is usually enough to start navigating.",
       inputSchema: {
-        query: z.string().describe("Docs source query, e.g. stripe"),
+        query: z.string().describe("Identifier, alias, or topic, e.g. \"stripe\" or \"stripe webhooks\""),
       },
     },
     async ({ query }) => {
-      const config = await loadConfig();
-      const [localEntries, globalResult] = await Promise.all([
-        searchDocsRegistry(query),
-        searchGlobalDocsRegistry(config, query),
-      ]);
-      const resolvedGlobal = resolveRegistrySearchIndexUrls(globalResult.entries, config.registryIndexBaseUrl);
-      const merged = new Map<string, DocsRegistryEntry>();
-      for (const entry of [...localEntries, ...resolvedGlobal]) {
-        if (!merged.has(entry.id)) merged.set(entry.id, entry);
+      const matches = await searchDocsRegistry(query);
+      if (matches.length === 0) {
+        return text({ matches: [], top: null });
       }
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
-              [...merged.values()].map((entry) => ({
-                id: entry.id,
-                aliases: entry.aliases,
-                sourceType: entry.sourceType,
-                source: entry.source,
-                description: entry.description,
-                sourceScope: entry.sourceScope ?? "builtin",
-                searchIndexUrl: entry.searchIndexUrl,
-                searchIndexPath: entry.searchIndexPath,
-                searchIndexRevision: entry.searchIndexRevision,
-              })),
-            ),
-          },
-        ],
-      };
+      const top = matches[0]!;
+      const [tree, llmsChunks] = await Promise.all([
+        treeForEntry(top, "/").catch(() => [] as ListNodeItem[]),
+        top.sourceType === "url" ? getLlmsFullChunks(top) : Promise.resolve(null),
+      ]);
+      return text({
+        matches: matches.map(entryCard),
+        top: {
+          ...entryCard(top),
+          tree,
+          llms_full_available: Array.isArray(llmsChunks) && llmsChunks.length > 0,
+          llms_full_chunk_count: Array.isArray(llmsChunks) ? llmsChunks.length : 0,
+        },
+      });
     },
   );
 
   server.registerTool(
-    "list_docs",
+    "read_docs",
     {
-      description: "List all discoverable docs sources.",
-      inputSchema: {},
-    },
-    async () => {
-      const config = await loadConfig();
-      const entries = await listDocsRegistryEntries(config);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
-              entries.map((entry) => ({
-                id: entry.id,
-                aliases: entry.aliases,
-                sourceType: entry.sourceType,
-                source: entry.source,
-                description: entry.description,
-                sourceScope: entry.sourceScope ?? "builtin",
-                searchIndexUrl: entry.searchIndexUrl,
-                searchIndexPath: entry.searchIndexPath,
-                searchIndexRevision: entry.searchIndexRevision,
-              })),
-            ),
-          },
-        ],
-      };
-    },
-  );
-
-  server.registerTool(
-    "open_docs",
-    {
-      description: "Open documentation by identifier and return a doc_id for subsequent node operations.",
+      description:
+        "Read documentation by identifier. Default (no path): returns the root tree. With a directory path: returns that subtree. With a page path or URL: returns its markdown content. Pass full=true to return the entire /llms-full.txt dump (one HTTP hit for the whole site, when available). Pass full=\"heading substring\" to return a single llms-full.txt section matching that heading.",
       inputSchema: {
-        package: z.string().describe("Docs identifier, alias, or topic"),
-        ingest: z
-          .union([z.boolean(), z.literal("full")])
+        id: z.string().describe("Registry identifier (e.g. \"stripe\") or alias"),
+        path: z
+          .string()
           .optional()
-          .default(true)
           .describe(
-            "URL docs (default true): lazy hydrate — full discovery tree, pages fetched on read_node, each read persisted in the background. false: no writes. \"full\": blocking ingest of all pages first. Installed bundles always use blocking ingest when ingest is not false.",
+            "Optional: '/' or dir path → subtree; absolute page URL (URL docs) or slug (bundles) → page content",
+          ),
+        full: z
+          .union([z.boolean(), z.string()])
+          .optional()
+          .describe(
+            "Optional: true → full llms-full.txt markdown; string → return the llms-full chunk whose heading contains that substring (case-insensitive)",
           ),
       },
     },
-    async ({ package: packageQuery, ingest }) => {
-      const config = await loadConfig();
-      const resolved = await resolveDocsEntryWithFallback(config, packageQuery);
-      if (!resolved) {
-        return {
-          content: [
-            { type: "text" as const, text: JSON.stringify({ error: "docs not found", query: packageQuery }) },
-          ],
-        };
-      }
-      const entry = resolved.entry;
-      const docId = docIdFor(entry);
-      const provider: "bundle" | "web" = entry.sourceType === "bundle" ? "bundle" : "web";
-      const ingestMode = parseIngestMode(ingest, provider);
-      const session: OpenDocSession = {
-        docId,
-        entry,
-        provider,
-        resolvedFrom: resolved.resolvedFrom,
-        registryRevision: resolved.registryRevision,
-        fetchedAt: resolved.fetchedAt,
-        ingestMode,
-      };
-      if (ingestMode === "none") {
-        const existingId = provider === "web" ? storeIdForUrl(entry.source) : storeIdForBundle(entry.source);
-        const existing = await readDocStoreManifest(existingId);
-        if (existing) session.storeId = existing.storeId;
-      } else if (ingestMode === "lazy" && provider === "web") {
-        session.storeId = storeIdForUrl(entry.source);
-      } else {
-        await ensureIngestedSession(session);
-      }
-      sessions.set(docId, session);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              doc_id: docId,
-              id: entry.id,
-              aliases: entry.aliases,
-              sourceType: entry.sourceType,
-              source: entry.source,
-              description: entry.description,
-              sourceScope: entry.sourceScope ?? "builtin",
-              resolvedFrom: resolved.resolvedFrom,
-              provider,
-              registryRevision: resolved.registryRevision,
-              fetchedAt: resolved.fetchedAt,
-              store_id: session.storeId,
-              ingest: ingest !== false,
-              ingest_mode: ingestMode,
-              ingestError: session.ingestError,
-              search_index_url: entry.searchIndexUrl,
-              search_index_path: entry.searchIndexPath,
-              search_index_revision: entry.searchIndexRevision,
-            }),
-          },
-        ],
-      };
-    },
-  );
+    async ({ id, path, full }) => {
+      const entry = await resolveOrFail(id);
+      if (!entry) return text({ error: "docs not found", id });
 
-  server.registerTool(
-    "list_nodes",
-    {
-      description: "List child nodes in an opened documentation tree.",
-      inputSchema: {
-        doc_id: z.string().describe("doc_id returned by open_docs"),
-        path: z.string().optional().describe("Node path to list, defaults to root '/'"),
-      },
-    },
-    async ({ doc_id, path }) => {
-      const session = getSession(doc_id);
-      if (!session) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
-      }
-      const nodePath = normalizeNodePath(path);
-      if (session.ingestMode === "full" && session.ingestError && !session.storeId) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({ error: "ingest failed", detail: session.ingestError, doc_id }),
-            },
-          ],
-        };
-      }
-      const storeNodes = shouldListNodesFromStore(session) ? await listDocStoreNodeItems(session, nodePath) : null;
-      if (storeNodes) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                doc_id,
-                path: nodePath,
-                provider: session.provider,
-                resolvedFrom: session.resolvedFrom,
-                store_id: session.storeId,
-                nodes: storeNodes,
-              }),
-            },
-          ],
-        };
-      }
-      if (session.entry.sourceType === "bundle") {
-        const ref = await findInstalledBundle(session.entry.source);
-        if (!ref) {
-          return {
-            content: [
-              { type: "text" as const, text: JSON.stringify({ error: "bundle not installed", bundle: session.entry.source }) },
-            ],
-          };
+      if (full !== undefined && full !== false) {
+        const chunks = await getLlmsFullChunks(entry);
+        if (!chunks) {
+          return text({
+            error: "site does not publish /llms-full.txt",
+            id: entry.id,
+            source: entry.source,
+            hint: "use read_docs with a path, or grep_docs to search",
+          });
         }
-        const bundle = await loadBundle(ref.root);
-        const nodes = listBundleNodes(listSlugs(bundle), nodePath);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                doc_id,
-                path: nodePath,
-                provider: session.provider,
-                resolvedFrom: session.resolvedFrom,
-                nodes,
-              }),
-            },
-          ],
-        };
+        if (full === true) {
+          const markdown = await getLlmsFullMarkdown(entry);
+          return text({
+            id: entry.id,
+            source: entry.source,
+            kind: "llms_full",
+            total_chunks: chunks.length,
+            markdown: markdown ?? "",
+            chunks: chunks.map((c, i) => ({ index: i, heading: c.heading })),
+          });
+        }
+        const needle = String(full).toLowerCase();
+        const idx = chunks.findIndex((c) => c.heading.toLowerCase().includes(needle));
+        if (idx < 0) {
+          return text({
+            error: "no llms-full.txt chunk matches heading",
+            needle: String(full),
+            available: chunks.map((c, i) => ({ index: i, heading: c.heading })),
+          });
+        }
+        const picked = chunks[idx]!;
+        return text({
+          id: entry.id,
+          kind: "llms_full_chunk",
+          chunk: { index: idx, heading: picked.heading, content: picked.body },
+          total_chunks: chunks.length,
+        });
       }
 
-      const urls = await listDocUrls(session.entry.source);
-      const nodes = listUrlNodes(urls, nodePath);
-      try {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                doc_id,
-                path: nodePath,
-                provider: session.provider,
-                resolvedFrom: session.resolvedFrom,
-                store_id: session.storeId,
-                nodes,
-              }),
-            },
-          ],
-        };
-      } catch (e) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({ error: e instanceof Error ? e.message : String(e), source: session.entry.source }),
-            },
-          ],
-        };
-      }
-    },
-  );
-
-  server.registerTool(
-    "read_node",
-    {
-      description: "Read a specific documentation node and return markdown content.",
-      inputSchema: {
-        doc_id: z.string().describe("doc_id returned by open_docs"),
-        path: z.string().describe("Path to page node"),
-      },
-    },
-    async ({ doc_id, path }) => {
-      const session = getSession(doc_id);
-      if (!session) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
-      }
       const nodePath = normalizeNodePath(path);
-      if (session.ingestMode === "full" && session.ingestError && !session.storeId) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({ error: "ingest failed", detail: session.ingestError, doc_id }),
-            },
-          ],
-        };
+
+      if (nodePath === "/" || !path) {
+        const tree = await treeForEntry(entry, "/");
+        const chunks = entry.sourceType === "url" ? await getLlmsFullChunks(entry) : null;
+        return text({
+          id: entry.id,
+          path: "/",
+          kind: "tree",
+          tree,
+          llms_full_available: Array.isArray(chunks) && chunks.length > 0,
+        });
       }
 
-      const isWebAbsolute =
-        session.provider === "web" &&
-        (nodePath.startsWith("http://") || nodePath.startsWith("https://")) &&
-        isUrlLike(nodePath);
-
-      if (isWebAbsolute) {
-        if (session.storeId) {
-          const manifest = await readDocStoreManifest(session.storeId);
+      if (entry.sourceType === "url") {
+        const isAbsoluteUrl =
+          (nodePath.startsWith("http://") || nodePath.startsWith("https://")) && isUrlLike(nodePath);
+        if (isAbsoluteUrl) {
+          const storeId = storeIdForUrl(entry.source);
+          const manifest = await readDocStoreManifest(storeId);
           if (manifest) {
-            const pathKey = pathKeyForPageUrl(nodePath);
-            const rec = manifest.pages[pathKey];
+            const rec = manifest.pages[pathKeyForPageUrl(nodePath)];
             if (rec) {
-              const content = await readDocStorePage(session.storeId, rec.relPath);
-              return {
-                content: [
-                  {
-                    type: "text" as const,
-                    text: JSON.stringify({
-                      doc_id,
-                      path: nodePath,
-                      title: rec.title,
-                      provider: session.provider,
-                      resolvedFrom: session.resolvedFrom,
-                      store_id: session.storeId,
-                      content,
-                    }),
-                  },
-                ],
-              };
+              const content = await readDocStorePage(storeId, rec.relPath);
+              return text({ id: entry.id, path: nodePath, kind: "page", title: rec.title, content });
             }
-            if (session.ingestMode === "full") {
-              return {
-                content: [
-                  {
-                    type: "text" as const,
-                    text: JSON.stringify({ error: "page not in store", path: nodePath, store_id: session.storeId }),
-                  },
-                ],
-              };
-            }
-          } else if (session.ingestMode === "full") {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({ error: "store manifest missing", path: nodePath, store_id: session.storeId }),
-                },
-              ],
-            };
+          }
+          try {
+            const page = await readDocUrl(nodePath);
+            scheduleLazyStoreWrite(storeId, () => mergeWebDocPageIntoUrlDocStore(entry.source, page));
+            return text({ id: entry.id, path: nodePath, kind: "page", title: page.title, content: page.markdown });
+          } catch (e) {
+            return text({ error: e instanceof Error ? e.message : String(e), id: entry.id, path: nodePath });
           }
         }
 
-        try {
-          const page = await readDocUrl(nodePath);
-          if (session.ingestMode === "lazy" && session.storeId) {
-            const baseUrl = session.entry.source;
-            const sid = session.storeId;
-            scheduleLazyUrlStoreWrite(sid, () => mergeWebDocPageIntoUrlDocStore(baseUrl, page));
-          }
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({
-                  doc_id,
-                  path: nodePath,
-                  title: page.title,
-                  provider: session.provider,
-                  resolvedFrom: session.resolvedFrom,
-                  store_id: session.storeId,
-                  content: page.markdown,
-                }),
-              },
-            ],
-          };
-        } catch (e) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({ error: e instanceof Error ? e.message : String(e), path: nodePath }),
-              },
-            ],
-          };
+        const subtree = await treeForEntry(entry, nodePath);
+        if (subtree.length > 0) {
+          return text({ id: entry.id, path: nodePath, kind: "tree", tree: subtree });
         }
+        return text({
+          error:
+            "for URL docs, read_docs path must be either '/' / a directory path, or an absolute page URL from the tree",
+          id: entry.id,
+          path: nodePath,
+        });
       }
 
-      if (session.storeId) {
-        const manifest = await readDocStoreManifest(session.storeId);
+      const slug = nodePath.replace(/^\//, "");
+      const storeId = await ensureBundleStoreId(entry);
+      if (storeId) {
+        const manifest = await readDocStoreManifest(storeId);
         if (manifest) {
-          const slug = nodePath.replace(/^\//, "");
           const rec = manifest.pages[`/${slug}`];
-          if (!rec) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({ error: "unknown path", path: nodePath, store_id: session.storeId }),
-                },
-              ],
-            };
+          if (rec) {
+            const content = await readDocStorePage(storeId, rec.relPath);
+            return text({ id: entry.id, path: nodePath, kind: "page", title: rec.title, content });
           }
-          const content = await readDocStorePage(session.storeId, rec.relPath);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({
-                  doc_id,
-                  path: nodePath,
-                  title: rec.title,
-                  provider: session.provider,
-                  resolvedFrom: session.resolvedFrom,
-                  store_id: session.storeId,
-                  content,
-                }),
-              },
-            ],
-          };
+          const subtree = await treeForEntry(entry, nodePath);
+          if (subtree.length > 0) {
+            return text({ id: entry.id, path: nodePath, kind: "tree", tree: subtree });
+          }
         }
       }
-      if (session.entry.sourceType === "bundle") {
-        const slug = nodePath.replace(/^\//, "");
-        const ref = await findInstalledBundle(session.entry.source);
-        if (!ref) {
-          return {
-            content: [
-              { type: "text" as const, text: JSON.stringify({ error: "bundle not installed", bundle: session.entry.source }) },
-            ],
-          };
-        }
-        const bundle = await loadBundle(ref.root);
-        try {
-          const content = await readPageMarkdown(bundle, slug);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({
-                  doc_id,
-                  path: nodePath,
-                  title: slug,
-                  provider: session.provider,
-                  resolvedFrom: session.resolvedFrom,
-                  content,
-                }),
-              },
-            ],
-          };
-        } catch {
-          return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown path", path: nodePath }) }] };
-        }
-      }
-
-      const sourcePath = nodePath.startsWith("http://") || nodePath.startsWith("https://") ? nodePath : null;
-      if (!sourcePath || !isUrlLike(sourcePath)) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                error: "for URL docs, read_node path must be an absolute page URL from list_nodes",
-                path: nodePath,
-              }),
-            },
-          ],
-        };
-      }
+      const ref = await findInstalledBundle(entry.source);
+      if (!ref) return text({ error: "bundle not installed", id: entry.id, bundle: entry.source });
+      const bundle = await loadBundle(ref.root);
       try {
-        const page = await readDocUrl(sourcePath);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                doc_id,
-                path: sourcePath,
-                title: page.title,
-                provider: session.provider,
-                resolvedFrom: session.resolvedFrom,
-                content: page.markdown,
-              }),
-            },
-          ],
-        };
-      } catch (e) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: e instanceof Error ? e.message : String(e), path: sourcePath }) }],
-        };
+        const content = await readPageMarkdown(bundle, slug);
+        return text({ id: entry.id, path: nodePath, kind: "page", title: slug, content });
+      } catch {
+        return text({ error: "unknown path", id: entry.id, path: nodePath });
       }
     },
   );
 
   server.registerTool(
-    "search_nodes",
+    "grep_docs",
     {
       description:
-        "Search nodes in an opened documentation context. When the registry entry has searchIndexUrl, uses the downloaded pre-built index (fast). Otherwise URL lazy mode uses bounded live search (D0_MCP_SEARCH_MAX_FETCH); ingest \"full\" uses the local doc store index.",
+        "Search within a documentation source. Uses the local cache of pages you've already read when available. For URL docs with no cache yet, runs a bounded live search (D0_MCP_SEARCH_MAX_FETCH). For bundles, uses the bundle's full-text index. Tip: if the site has llms-full.txt, prefer read_docs with full=true for broad retrieval.",
       inputSchema: {
-        doc_id: z.string().describe("doc_id returned by open_docs"),
+        id: z.string().describe("Registry identifier (e.g. \"stripe\") or alias"),
         query: z.string().describe("Search query"),
       },
     },
-    async ({ doc_id, query }) => {
-      const session = getSession(doc_id);
-      if (!session) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: "unknown doc_id", doc_id }) }] };
-      }
-      if (session.ingestMode === "full" && session.ingestError && !session.storeId) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({ error: "ingest failed", detail: session.ingestError, doc_id }),
-            },
-          ],
-        };
-      }
-      if (session.entry.sourceType === "url") {
-        try {
-          const remote = await loadRemoteSearchIndex(session.entry);
-          if (remote) {
-            const hits = searchIndex(remote, query).map((hit) => ({
-              path: hit.pageUrl ?? `/${hit.slug}`,
+    async ({ id, query }) => {
+      const entry = await resolveOrFail(id);
+      if (!entry) return text({ error: "docs not found", id });
+
+      const storeId =
+        entry.sourceType === "url" ? storeIdForUrl(entry.source) : await ensureBundleStoreId(entry);
+
+      if (storeId) {
+        const manifest = await readDocStoreManifest(storeId);
+        if (manifest && Object.keys(manifest.pages).length > 0) {
+          const hits = await searchDocStore(manifest, query);
+          return text({
+            id: entry.id,
+            query,
+            hits: hits.map((hit) => ({
+              path: hit.path,
               title: hit.title,
               snippet: hit.snippet,
               score: hit.score,
-            }));
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({
-                    doc_id,
-                    query,
-                    search: "remote_index",
-                    hits,
-                    provider: session.provider,
-                    resolvedFrom: session.resolvedFrom,
-                  }),
-                },
-              ],
-            };
-          }
-        } catch (e) {
-          console.error("[d0 mcp] remote search index failed:", e);
+            })),
+          });
         }
       }
-      if (session.ingestMode === "full" && session.storeId) {
-        const manifest = await readDocStoreManifest(session.storeId);
-        if (manifest) {
-          const hits = await searchDocStore(manifest, query);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({
-                  doc_id,
-                  query,
-                  store_id: session.storeId,
-                  hits: hits.map((hit) => ({
-                    path: hit.path,
-                    title: hit.title,
-                    snippet: hit.snippet,
-                    score: hit.score,
-                  })),
-                }),
-              },
-            ],
-          };
-        }
-      }
-      if (session.entry.sourceType === "bundle") {
-        const ref = await findInstalledBundle(session.entry.source);
-        if (!ref) {
-          return {
-            content: [
-              { type: "text" as const, text: JSON.stringify({ error: "bundle not installed", bundle: session.entry.source }) },
-            ],
-          };
-        }
+
+      if (entry.sourceType === "bundle") {
+        const ref = await findInstalledBundle(entry.source);
+        if (!ref) return text({ error: "bundle not installed", id: entry.id, bundle: entry.source });
         const bundle = await loadBundle(ref.root);
         const mini = await buildIndex(bundle);
         const hits = searchIndex(mini, query).map((hit) => ({
@@ -760,31 +419,34 @@ export function registerD0Tools(server: McpServer): void {
           snippet: hit.snippet,
           score: hit.score,
         }));
-        return { content: [{ type: "text" as const, text: JSON.stringify({ doc_id, query, hits }) }] };
+        return text({ id: entry.id, query, hits });
       }
 
-      const hits = await searchDocUrls(session.entry.source, query, undefined, {
+      const hits = await searchDocUrls(entry.source, query, undefined, {
         maxFetch: mcpLiveSearchMaxFetch(),
         earlyExit: true,
       });
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              doc_id,
-              query,
-              hits: hits.map((hit) => ({
-                path: hit.url,
-                title: hit.title,
-                snippet: hit.snippet,
-              })),
-              provider: session.provider,
-              resolvedFrom: session.resolvedFrom,
-            }),
-          },
-        ],
-      };
+      return text({
+        id: entry.id,
+        query,
+        hits: hits.map((hit) => ({
+          path: hit.url,
+          title: hit.title,
+          snippet: hit.snippet,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "list_docs",
+    {
+      description: "List all registry entries (built-in + user-added + installed bundles).",
+      inputSchema: {},
+    },
+    async () => {
+      const entries = await listDocsRegistryEntries();
+      return text(entries.map(entryCard));
     },
   );
 }

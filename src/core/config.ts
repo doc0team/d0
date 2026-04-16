@@ -23,9 +23,6 @@ export interface D0Config {
   outputFormat: OutputFormat;
   keybindings: Keybindings;
   defaultBundles: string[];
-  registryUrl: string;
-  /** Origin for `searchIndexPath` on registry entries (static JSON on your CDN, e.g. Vercel). */
-  registryIndexBaseUrl: string;
 }
 
 const defaultKeybindings: Keybindings = {
@@ -44,8 +41,6 @@ export const defaultConfig: D0Config = {
   outputFormat: "auto",
   keybindings: { ...defaultKeybindings },
   defaultBundles: [],
-  registryUrl: "https://registry.d0.dev",
-  registryIndexBaseUrl: "https://reg.document0.com",
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -62,7 +57,9 @@ export function configPath(): string {
 
 export async function loadConfig(): Promise<D0Config> {
   const p = configPath();
-  if (!existsSync(p)) return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
+  if (!existsSync(p)) {
+    return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
+  }
   const raw = await readFile(p, "utf8");
   let data: unknown;
   try {
@@ -78,7 +75,9 @@ export async function loadConfig(): Promise<D0Config> {
   } catch {
     return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
   }
-  if (!isRecord(data)) return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
+  if (!isRecord(data)) {
+    return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
+  }
 
   const theme = data.theme === "light" ? "light" : "dark";
   const outputFormat =
@@ -107,22 +106,10 @@ export async function loadConfig(): Promise<D0Config> {
     ? data.defaultBundles.filter((x): x is string => typeof x === "string")
     : [];
 
-  const registryUrl =
-    typeof data.registryUrl === "string" && data.registryUrl.trim()
-      ? data.registryUrl.trim()
-      : defaultConfig.registryUrl;
-
-  const registryIndexBaseUrl =
-    typeof data.registryIndexBaseUrl === "string" && data.registryIndexBaseUrl.trim()
-      ? data.registryIndexBaseUrl.trim().replace(/\/+$/, "")
-      : defaultConfig.registryIndexBaseUrl;
-
   return {
     theme,
     outputFormat,
     keybindings,
     defaultBundles,
-    registryUrl,
-    registryIndexBaseUrl,
   };
 }
