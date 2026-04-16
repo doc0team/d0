@@ -4,16 +4,22 @@ import { findInstalledBundle } from "../core/storage.js";
 import { loadBundle, listSlugs, readPageMarkdown } from "../core/bundle.js";
 import { buildIndex, searchIndex } from "../core/search-engine.js";
 import { isUrlLike, listDocUrls, readDocUrl, searchDocUrls } from "../core/web-docs.js";
+import { loadConfig } from "../core/config.js";
 import {
   listDocsRegistryEntries,
-  resolveDocsRegistryEntry,
+  resolveDocsEntryWithFallback,
   searchDocsRegistry,
+  searchGlobalDocsRegistry,
   type DocsRegistryEntry,
 } from "../core/registry-client.js";
 
 type OpenDocSession = {
   docId: string;
   entry: DocsRegistryEntry;
+  resolvedFrom: "local" | "cache" | "global";
+  provider: "bundle" | "web";
+  registryRevision?: string;
+  fetchedAt: string;
 };
 
 type ListNodeItem = {
@@ -115,18 +121,27 @@ export function registerD0Tools(server: McpServer): void {
       },
     },
     async ({ query }) => {
-      const entries = await searchDocsRegistry(query);
+      const config = await loadConfig();
+      const [localEntries, globalResult] = await Promise.all([
+        searchDocsRegistry(query),
+        searchGlobalDocsRegistry(config, query),
+      ]);
+      const merged = new Map<string, DocsRegistryEntry>();
+      for (const entry of [...localEntries, ...globalResult.entries]) {
+        if (!merged.has(entry.id)) merged.set(entry.id, entry);
+      }
       return {
         content: [
           {
             type: "text" as const,
             text: JSON.stringify(
-              entries.map((entry) => ({
+              [...merged.values()].map((entry) => ({
                 id: entry.id,
                 aliases: entry.aliases,
                 sourceType: entry.sourceType,
                 source: entry.source,
                 description: entry.description,
+                sourceScope: entry.sourceScope ?? "builtin",
               })),
             ),
           },
@@ -142,7 +157,8 @@ export function registerD0Tools(server: McpServer): void {
       inputSchema: {},
     },
     async () => {
-      const entries = await listDocsRegistryEntries();
+      const config = await loadConfig();
+      const entries = await listDocsRegistryEntries(config);
       return {
         content: [
           {
@@ -154,6 +170,7 @@ export function registerD0Tools(server: McpServer): void {
                 sourceType: entry.sourceType,
                 source: entry.source,
                 description: entry.description,
+                sourceScope: entry.sourceScope ?? "builtin",
               })),
             ),
           },
@@ -171,16 +188,26 @@ export function registerD0Tools(server: McpServer): void {
       },
     },
     async ({ package: packageQuery }) => {
-      const entry = await resolveDocsRegistryEntry(packageQuery);
-      if (!entry) {
+      const config = await loadConfig();
+      const resolved = await resolveDocsEntryWithFallback(config, packageQuery);
+      if (!resolved) {
         return {
           content: [
             { type: "text" as const, text: JSON.stringify({ error: "docs not found", query: packageQuery }) },
           ],
         };
       }
+      const entry = resolved.entry;
       const docId = docIdFor(entry);
-      sessions.set(docId, { docId, entry });
+      const provider: "bundle" | "web" = entry.sourceType === "bundle" ? "bundle" : "web";
+      sessions.set(docId, {
+        docId,
+        entry,
+        provider,
+        resolvedFrom: resolved.resolvedFrom,
+        registryRevision: resolved.registryRevision,
+        fetchedAt: resolved.fetchedAt,
+      });
       return {
         content: [
           {
@@ -192,6 +219,11 @@ export function registerD0Tools(server: McpServer): void {
               sourceType: entry.sourceType,
               source: entry.source,
               description: entry.description,
+              sourceScope: entry.sourceScope ?? "builtin",
+              resolvedFrom: resolved.resolvedFrom,
+              provider,
+              registryRevision: resolved.registryRevision,
+              fetchedAt: resolved.fetchedAt,
             }),
           },
         ],
@@ -232,6 +264,8 @@ export function registerD0Tools(server: McpServer): void {
               text: JSON.stringify({
                 doc_id,
                 path: nodePath,
+                provider: session.provider,
+                resolvedFrom: session.resolvedFrom,
                 nodes,
               }),
             },
@@ -243,7 +277,12 @@ export function registerD0Tools(server: McpServer): void {
       const nodes = listUrlNodes(urls, nodePath);
       try {
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ doc_id, path: nodePath, nodes }) }],
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ doc_id, path: nodePath, provider: session.provider, resolvedFrom: session.resolvedFrom, nodes }),
+            },
+          ],
         };
       } catch (e) {
         return {
@@ -294,6 +333,8 @@ export function registerD0Tools(server: McpServer): void {
                   doc_id,
                   path: nodePath,
                   title: slug,
+                  provider: session.provider,
+                  resolvedFrom: session.resolvedFrom,
                   content,
                 }),
               },
@@ -328,6 +369,8 @@ export function registerD0Tools(server: McpServer): void {
                 doc_id,
                 path: sourcePath,
                 title: page.title,
+                provider: session.provider,
+                resolvedFrom: session.resolvedFrom,
                 content: page.markdown,
               }),
             },
@@ -388,6 +431,8 @@ export function registerD0Tools(server: McpServer): void {
                 title: hit.title,
                 snippet: hit.snippet,
               })),
+              provider: session.provider,
+              resolvedFrom: session.resolvedFrom,
             }),
           },
         ],

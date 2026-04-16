@@ -52,6 +52,7 @@ d0 ls --json
 | `d0 build [dir]` | Validate and write `dist/<name>-<ver>.d0.tgz` |
 | `d0 publish [dir]` | Stub until registry is live |
 | `d0 import <src> --name @scope/pkg [--out dir]` | Import markdown tree or single file |
+| `d0 registry sync` | Refresh global registry metadata cache only (no bundle installs) |
 | `d0 mcp` | MCP server on stdio (`search_docs`, `list_docs`, `open_docs`, `list_nodes`, `read_node`, `search_nodes`) |
 
 Flags: `--json` and `--raw` where documented; without a TTY, `read` defaults to raw markdown and `search`/`ls` default to JSON when `outputFormat` is `auto` in `~/.d0rc`.
@@ -72,9 +73,13 @@ Tool flow:
 
 Registry entries are resolved from:
 
-- built-in defaults
+- user registry overrides (`~/.d0/docs-registry.json`)
 - installed bundles
-- optional user registry file at `~/.d0/docs-registry.json`
+- cached global registry snapshot (`~/.d0/cache/global-docs-registry.json`)
+- live global registry via `registryUrl` (`~/.d0rc`)
+- built-in defaults
+
+Resolution is local-first with global fallback. `open_docs` can resolve a docs source from the global registry even when it is not installed locally. The MCP server still runs on the user's machine and queries the global registry over HTTPS when needed.
 
 ## License
 

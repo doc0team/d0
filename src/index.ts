@@ -14,6 +14,7 @@ import { cmdPublish } from "./commands/publish.js";
 import { cmdImport } from "./commands/import.js";
 import { cmdMcp } from "./commands/mcp.js";
 import { cmdBrowseOpenTui } from "./commands/opentui.js";
+import { cmdRegistrySync } from "./commands/registry.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -30,6 +31,7 @@ const GLOBAL = new Set([
   "search",
   "browse",
   "browse-opentui",
+  "registry",
   "help",
   "-h",
   "--help",
@@ -255,6 +257,15 @@ async function main(): Promise<void> {
   program.command("mcp").description("start MCP server (stdio)").action(async () => {
     await cmdMcp();
   });
+
+  program
+    .command("registry")
+    .description("registry operations")
+    .command("sync")
+    .description("refresh global docs registry metadata cache")
+    .action(async () => {
+      await cmdRegistrySync(config);
+    });
 
   await program.parseAsync(argv, { from: "user" });
 }
