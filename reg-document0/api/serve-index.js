@@ -1,5 +1,5 @@
 import { get } from "@vercel/blob";
-import { requestUrl } from "./_lib/request-url.js";
+import { requestUrl } from "./_lib/req-compat.js";
 
 /**
  * GET /indexes/<file>.json → rewrite → ?file=<name>

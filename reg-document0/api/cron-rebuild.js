@@ -2,7 +2,7 @@ import { put } from "@vercel/blob";
 import { buildRemoteIndexJson } from "d0/build-remote-index";
 import { cronAuthorized } from "./_cron-auth.js";
 import { resolveIndexJobsFromEnv } from "./_lib/index-jobs.js";
-import { requestUrl } from "./_lib/request-url.js";
+import { requestUrl } from "./_lib/req-compat.js";
 
 /**
  * Cron (GET) or manual rebuild: crawl doc sites from env, write each JSON to Vercel Blob under indexes/<file>.
