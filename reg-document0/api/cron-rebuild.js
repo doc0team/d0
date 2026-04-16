@@ -2,6 +2,7 @@ import { put } from "@vercel/blob";
 import { buildRemoteIndexJson } from "d0/build-remote-index";
 import { cronAuthorized } from "./_cron-auth.js";
 import { resolveIndexJobsFromEnv } from "./_lib/index-jobs.js";
+import { requestUrl } from "./_lib/request-url.js";
 
 /**
  * Cron (GET) or manual rebuild: crawl doc sites from env, write each JSON to Vercel Blob under indexes/<file>.
@@ -14,7 +15,7 @@ export default async function handler(req) {
   if (req.method !== "GET" && req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
-  const url = new URL(req.url);
+  const url = requestUrl(req);
   if (!cronAuthorized(req, url)) {
     return new Response("Unauthorized", { status: 401 });
   }

@@ -2,6 +2,7 @@ import { list } from "@vercel/blob";
 import { cronAuthorized } from "./_cron-auth.js";
 import { VERCEL_CRONS } from "./_lib/cron-meta.js";
 import { resolveIndexJobsFromEnv } from "./_lib/index-jobs.js";
+import { requestUrl } from "./_lib/request-url.js";
 
 /**
  * GET /api/diag?secret=… — same auth as cron-rebuild.
@@ -11,7 +12,7 @@ export default async function handler(req) {
   if (req.method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
   }
-  const url = new URL(req.url);
+  const url = requestUrl(req);
   if (!cronAuthorized(req, url)) {
     return new Response("Unauthorized", { status: 401 });
   }

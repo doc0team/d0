@@ -1,11 +1,12 @@
 import { get } from "@vercel/blob";
+import { requestUrl } from "./_lib/request-url.js";
 
 /**
  * GET /indexes/<file>.json → rewrite → ?file=<name>
  * Serves blob at pathname indexes/<file> from the linked Vercel Blob store.
  */
 export default async function handler(req) {
-  const url = new URL(req.url);
+  const url = requestUrl(req);
   const file = url.searchParams.get("file");
   if (!file || file.includes("..") || file.includes("/") || !/^[a-zA-Z0-9._-]+\.json$/.test(file)) {
     return new Response("Bad request", { status: 400 });
