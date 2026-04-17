@@ -245,9 +245,22 @@ function mergeByPrecedence(entries: DocsRegistryEntry[]): DocsRegistryEntry[] {
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export async function listDocsRegistryEntries(): Promise<DocsRegistryEntry[]> {
+export interface ListDocsOptions {
+  /** When true, omit built-in URL entries; only user overrides and installed bundles are returned. */
+  installedOnly?: boolean;
+}
+
+export async function listDocsRegistryEntries(opts: ListDocsOptions = {}): Promise<DocsRegistryEntry[]> {
   const [bundles, userEntries] = await Promise.all([installedBundleEntries(), readUserRegistryEntries()]);
-  return mergeByPrecedence([...userEntries, ...bundles, ...BUILTIN_DOCS_REGISTRY]);
+  const pool = opts.installedOnly
+    ? [...userEntries, ...bundles]
+    : [...userEntries, ...bundles, ...BUILTIN_DOCS_REGISTRY];
+  return mergeByPrecedence(pool);
+}
+
+function isMcpInstalledOnly(): boolean {
+  const raw = process.env.D0_MCP_INSTALLED_ONLY?.trim();
+  return raw === "1" || raw?.toLowerCase() === "true";
 }
 
 export function scoreRegistryMatch(entry: DocsRegistryEntry, query: string): number {
@@ -262,8 +275,11 @@ export function scoreRegistryMatch(entry: DocsRegistryEntry, query: string): num
   return 0;
 }
 
-export async function searchDocsRegistry(query: string): Promise<DocsRegistryEntry[]> {
-  const entries = await listDocsRegistryEntries();
+export async function searchDocsRegistry(
+  query: string,
+  opts: ListDocsOptions = {},
+): Promise<DocsRegistryEntry[]> {
+  const entries = await listDocsRegistryEntries(opts);
   return entries
     .map((entry) => ({ entry, score: scoreRegistryMatch(entry, query) }))
     .filter((item) => item.score > 0)
@@ -271,8 +287,11 @@ export async function searchDocsRegistry(query: string): Promise<DocsRegistryEnt
     .map((item) => item.entry);
 }
 
-export async function resolveDocsRegistryEntry(query: string): Promise<DocsRegistryEntry | null> {
-  const entries = await listDocsRegistryEntries();
+export async function resolveDocsRegistryEntry(
+  query: string,
+  opts: ListDocsOptions = {},
+): Promise<DocsRegistryEntry | null> {
+  const entries = await listDocsRegistryEntries(opts);
   let best: { entry: DocsRegistryEntry; score: number } | null = null;
   for (const entry of entries) {
     const score = scoreRegistryMatch(entry, query);
@@ -289,6 +308,11 @@ export async function resolveDocsRegistryEntry(query: string): Promise<DocsRegis
     }
   }
   return best?.entry ?? null;
+}
+
+/** Helper: registry list/search options derived from the current MCP environment. */
+export function mcpRegistryOptions(): ListDocsOptions {
+  return { installedOnly: isMcpInstalledOnly() };
 }
 
 export async function resolveDocsEntryWithFallback(query: string): Promise<DocsResolveResult | null> {

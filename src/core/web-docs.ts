@@ -317,14 +317,19 @@ export type LlmsFullTxt = { url: string; markdown: string; chunks: LlmsFullChunk
 const llmsFullCache = new Map<string, { ts: number; value: LlmsFullTxt | null }>();
 const LLMS_FULL_TTL_MS = 30 * 60 * 1000;
 
-function splitLlmsFullIntoChunks(markdown: string): LlmsFullChunk[] {
+/** Max chars per llms-full chunk (paragraph-bounded). Override with D0_LLMS_FULL_CHUNK_MAX_CHARS. */
+const LLMS_FULL_CHUNK_MAX_CHARS = envPositiveInt("D0_LLMS_FULL_CHUNK_MAX_CHARS", 8000);
+
+type RawSection = { heading: string; body: string };
+
+function splitByHeadings(markdown: string): RawSection[] {
   const lines = markdown.split(/\r?\n/);
-  const chunks: LlmsFullChunk[] = [];
+  const out: RawSection[] = [];
   let currentHeading = "Introduction";
   let buffer: string[] = [];
   const flush = () => {
     const body = buffer.join("\n").trim();
-    if (body) chunks.push({ heading: currentHeading, body });
+    if (body) out.push({ heading: currentHeading, body });
   };
   for (const line of lines) {
     const m = line.match(/^(#{1,3})\s+(.+?)\s*$/);
@@ -337,7 +342,144 @@ function splitLlmsFullIntoChunks(markdown: string): LlmsFullChunk[] {
     buffer.push(line);
   }
   flush();
-  return chunks;
+  return out;
+}
+
+/**
+ * Split one oversized section into paragraph-bounded chunks that stay under maxChars.
+ * Continuation chunks share the heading, suffixed with (part N/M) so agents can tell.
+ */
+function subdivideSection(section: RawSection, maxChars: number): LlmsFullChunk[] {
+  if (section.body.length <= maxChars) return [{ heading: section.heading, body: section.body }];
+  const paragraphs = section.body.split(/\n\s*\n/);
+  const parts: string[] = [];
+  let buf: string[] = [];
+  let bufLen = 0;
+  for (const para of paragraphs) {
+    const pLen = para.length + 2;
+    if (bufLen > 0 && bufLen + pLen > maxChars) {
+      parts.push(buf.join("\n\n"));
+      buf = [];
+      bufLen = 0;
+    }
+    if (pLen > maxChars) {
+      if (buf.length > 0) {
+        parts.push(buf.join("\n\n"));
+        buf = [];
+        bufLen = 0;
+      }
+      for (let i = 0; i < para.length; i += maxChars) {
+        parts.push(para.slice(i, i + maxChars));
+      }
+      continue;
+    }
+    buf.push(para);
+    bufLen += pLen;
+  }
+  if (buf.length > 0) parts.push(buf.join("\n\n"));
+  const total = parts.length;
+  return parts.map((body, i) => ({
+    heading: total > 1 ? `${section.heading} (part ${i + 1}/${total})` : section.heading,
+    body,
+  }));
+}
+
+function splitLlmsFullIntoChunks(markdown: string): LlmsFullChunk[] {
+  const sections = splitByHeadings(markdown);
+  const out: LlmsFullChunk[] = [];
+  for (const section of sections) {
+    for (const chunk of subdivideSection(section, LLMS_FULL_CHUNK_MAX_CHARS)) {
+      out.push(chunk);
+    }
+  }
+  return out;
+}
+
+export interface DocsSourceProbe {
+  url: string;
+  reachable: boolean;
+  status?: number;
+  llmsTxt: { available: boolean; url?: string; urlCount?: number };
+  llmsFullTxt: { available: boolean; url?: string; chunkCount?: number; bytes?: number };
+  sitemap: { available: boolean; url?: string; urlCount?: number };
+  error?: string;
+}
+
+async function headOk(url: string): Promise<{ ok: boolean; status?: number }> {
+  try {
+    const res = await fetch(url, {
+      method: "HEAD",
+      headers: { "user-agent": "d0-docs-bot/0.1 (+https://github.com)" },
+    });
+    return { ok: res.ok, status: res.status };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function probeLlmsTxt(base: URL): Promise<DocsSourceProbe["llmsTxt"]> {
+  for (const url of llmsTxtFetchUrls(base)) {
+    try {
+      const text = await fetchText(url);
+      if (!text.trim() || looksLikeHtmlDocument(text)) continue;
+      const urls = extractLlmsTxtUrls(text, base);
+      return { available: true, url, urlCount: urls.length };
+    } catch {
+      /* try next */
+    }
+  }
+  return { available: false };
+}
+
+async function probeSitemap(base: URL): Promise<DocsSourceProbe["sitemap"]> {
+  const candidates = [new URL("/sitemap.xml", base).toString(), new URL("/sitemap_index.xml", base).toString()];
+  for (const url of candidates) {
+    try {
+      const text = await fetchText(url);
+      const locs = extractSitemapLocs(text);
+      if (locs.length > 0) return { available: true, url, urlCount: locs.length };
+    } catch {
+      /* try next */
+    }
+  }
+  return { available: false };
+}
+
+/**
+ * Probe a docs URL to see which agent-friendly surfaces it ships: the URL itself (HEAD),
+ * `/llms.txt`, `/llms-full.txt`, and `/sitemap.xml`. Non-blocking / bounded — runs all
+ * probes in parallel with the fetch timeouts of the underlying client.
+ */
+export async function probeDocsSource(input: string): Promise<DocsSourceProbe> {
+  let base: URL;
+  try {
+    base = normalizeInputUrl(input);
+  } catch (err) {
+    return {
+      url: input,
+      reachable: false,
+      llmsTxt: { available: false },
+      llmsFullTxt: { available: false },
+      sitemap: { available: false },
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  const [reach, llmsTxt, llmsFull, sitemap] = await Promise.all([
+    headOk(base.toString()),
+    probeLlmsTxt(base),
+    fetchLlmsFullTxt(base.toString()).catch(() => null),
+    probeSitemap(base),
+  ]);
+  return {
+    url: base.toString(),
+    reachable: reach.ok,
+    ...(reach.status !== undefined ? { status: reach.status } : {}),
+    llmsTxt,
+    llmsFullTxt: llmsFull
+      ? { available: true, url: llmsFull.url, chunkCount: llmsFull.chunks.length, bytes: llmsFull.markdown.length }
+      : { available: false },
+    sitemap,
+  };
 }
 
 /**

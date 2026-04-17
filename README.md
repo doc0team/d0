@@ -27,9 +27,20 @@ Add `~/.d0/bin` to your `PATH` to use named bundle CLIs (e.g. `stripe-docs`) aft
 ## Quick start
 
 ```bash
+# Point d0 at any markdown folder — name + version inferred from package.json when present.
+d0 add ./my-docs
+d0 @local/my-docs
+
+# Or install a packaged bundle dir that ships with d0.json.
 d0 add --local ./examples/example-lib
 d0 @example/lib
 # TUI: j/k scroll, Enter open, / search, h back, l forward, q quit
+
+# See which of your project's deps have built-in docs coverage.
+d0 suggest
+
+# Verify every registry entry (bundles installed, URLs serve llms.txt / llms-full.txt / sitemap).
+d0 doctor
 
 d0 @example/lib search webhooks --json
 d0 @example/lib read api/webhooks --raw
@@ -40,7 +51,9 @@ d0 ls --json
 
 | Command | Description |
 |--------|-------------|
-| `d0 add --local <dir>` | Install a bundle from disk |
+| `d0 add <path>` | **Instant bundle.** Point at any folder of markdown — d0 scans `.md` / `.mdx`, infers name from `package.json` (or `@local/<dirname>`), bundles, and installs in one step. Pass `--name @scope/x` to override. |
+| `d0 add --local <dir>` | Install an existing bundle directory that already has `d0.json` (strict). |
+| `d0 add <@scope/name>` | Registry name (network registry not live yet). |
 | `d0 remove <name>` | Remove an installed bundle |
 | `d0 ls` | List installed bundles |
 | `d0 <bundle>` | Open Ink interactive browser (TTY) |
@@ -52,9 +65,11 @@ d0 ls --json
 | `d0 build [dir]` | Validate and write `dist/<name>-<ver>.d0.tgz` |
 | `d0 publish [dir]` | Stub until registry is live |
 | `d0 import <src> --name @scope/pkg [--out dir]` | Import markdown tree or single file |
-| `d0 ingest url <url>` | Ingest discovered pages into `~/.d0/docs-store/<id>/` (metadata + normalized markdown) |
+| `d0 ingest url <url>` | Ingest discovered pages into `~/.d0/docs-store/<id>/` |
 | `d0 ingest bundle <bundle>` | Ingest an installed bundle into the local docs store |
-| `d0 mcp` | MCP server on stdio |
+| `d0 doctor` | Verify every registry entry: bundles exist, URLs serve `/llms.txt` / `/llms-full.txt` / sitemap. |
+| `d0 suggest [dir]` | Scan `./package.json` deps and report which have d0 registry coverage. |
+| `d0 mcp` | MCP server on stdio. `--installed-only` hides built-in URL sources; only user-added entries + installed bundles are exposed. |
 | `d0 mcp install` | Add d0 to Cursor `mcp.json` (merge; backs up existing file) |
 
 Flags: `--json` and `--raw` where documented; without a TTY, `read` defaults to raw markdown and `search`/`ls` default to JSON when `outputFormat` is `auto` in `~/.d0rc`.
@@ -123,6 +138,8 @@ Large doc sites can return tens of thousands of URLs from sitemaps and `llms.txt
 | `D0_SEARCH_FETCH_CONCURRENCY` | Parallelism for that live search fetch pass | `8` |
 | `D0_INGEST_MAX_PAGES` | `ingestUrlToDocStore` / CLI ingest: max pages after dedupe (`0` = all discovered up to `D0_MAX_DISCOVERED_URLS`) | `50000` |
 | `D0_INGEST_FETCH_CONCURRENCY` | Parallelism when writing ingested markdown pages | `8` |
+| `D0_LLMS_FULL_CHUNK_MAX_CHARS` | Max characters per `llms-full.txt` chunk (paragraph-bounded; continuation chunks share the heading as `(part N/M)`) | `8000` |
+| `D0_MCP_INSTALLED_ONLY` | Set to `1` to hide built-in URL registry entries in MCP (equivalent to `d0 mcp --installed-only`) | unset |
 
 CLI: `d0 ingest url` accepts `--max-pages` (same semantics: `0` means no extra cap beyond discovery).
 

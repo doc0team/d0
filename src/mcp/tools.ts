@@ -18,6 +18,7 @@ import { ingestBundleToDocStore } from "../core/ingest-bundle.js";
 import { searchDocStore } from "../core/doc-store-search.js";
 import {
   listDocsRegistryEntries,
+  mcpRegistryOptions,
   resolveDocsRegistryEntry,
   searchDocsRegistry,
   type DocsRegistryEntry,
@@ -174,7 +175,7 @@ async function ensureBundleStoreId(entry: DocsRegistryEntry): Promise<string | n
 }
 
 async function resolveOrFail(id: string): Promise<DocsRegistryEntry | null> {
-  return resolveDocsRegistryEntry(id);
+  return resolveDocsRegistryEntry(id, mcpRegistryOptions());
 }
 
 async function getLlmsFullChunks(entry: DocsRegistryEntry): Promise<LlmsFullChunk[] | null> {
@@ -213,7 +214,7 @@ export function registerD0Tools(server: McpServer): void {
       },
     },
     async ({ query }) => {
-      const matches = await searchDocsRegistry(query);
+      const matches = await searchDocsRegistry(query, mcpRegistryOptions());
       if (matches.length === 0) {
         return text({ matches: [], top: null });
       }
@@ -445,7 +446,7 @@ export function registerD0Tools(server: McpServer): void {
       inputSchema: {},
     },
     async () => {
-      const entries = await listDocsRegistryEntries();
+      const entries = await listDocsRegistryEntries(mcpRegistryOptions());
       return text(entries.map(entryCard));
     },
   );

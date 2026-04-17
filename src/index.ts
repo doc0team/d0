@@ -16,6 +16,8 @@ import { cmdMcp } from "./commands/mcp.js";
 import { cmdMcpInstall } from "./commands/mcp-install.js";
 import { cmdBrowseOpenTui } from "./commands/opentui.js";
 import { cmdIngestBundle, cmdIngestUrl } from "./commands/ingest.js";
+import { cmdDoctor } from "./commands/doctor.js";
+import { cmdSuggest } from "./commands/suggest.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -33,6 +35,8 @@ const GLOBAL = new Set([
   "browse",
   "browse-opentui",
   "ingest",
+  "doctor",
+  "suggest",
   "help",
   "-h",
   "--help",
@@ -143,10 +147,14 @@ async function main(): Promise<void> {
 
   program
     .command("add")
-    .argument("[bundle]", "registry bundle name (@scope/name) when registry is available")
-    .option("--local <path>", "install from a local bundle directory")
-    .action(async (bundle: string | undefined, opts: { local?: string }) => {
-      await cmdAdd(bundle, opts, config);
+    .argument(
+      "[target]",
+      "path to a docs folder (auto-detects .md/.mdx), existing bundle dir with d0.json, or registry name",
+    )
+    .option("--local <path>", "install from a local bundle directory (strict: requires d0.json)")
+    .option("--name <scoped>", "override the inferred bundle name when adding a raw docs folder")
+    .action(async (target: string | undefined, opts: { local?: string; name?: string }) => {
+      await cmdAdd(target, opts, config);
     });
 
   program
@@ -265,9 +273,14 @@ async function main(): Promise<void> {
     .action(async (opts: { project?: boolean; dryRun?: boolean; yes?: boolean }) => {
       await cmdMcpInstall({ project: opts.project, dryRun: opts.dryRun, yes: opts.yes });
     });
-  mcpCmd.action(async () => {
-    await cmdMcp();
-  });
+  mcpCmd
+    .option(
+      "--installed-only",
+      "expose only installed bundles + user-added registry entries (no built-in URL docs)",
+    )
+    .action(async (opts: { installedOnly?: boolean }) => {
+      await cmdMcp({ installedOnly: opts.installedOnly });
+    });
 
   const ingest = program.command("ingest").description("ingest docs into local structured store (~/.d0/docs-store)");
   ingest
@@ -291,6 +304,24 @@ async function main(): Promise<void> {
     .action(async (bundle: string, opts: { json?: boolean }) => {
       await cmdIngestBundle(bundle, opts, config);
     });
+
+  program
+    .command("doctor")
+    .description("verify every registry entry: bundles exist, URLs expose llms.txt/llms-full.txt/sitemap")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdDoctor(opts);
+    });
+
+  program
+    .command("suggest")
+    .description("scan ./package.json dependencies and report which ones have d0 registry coverage")
+    .argument("[dir]", "project directory containing package.json", ".")
+    .option("--json", "JSON output")
+    .action(async (dir: string, opts: { json?: boolean }) => {
+      await cmdSuggest(dir, opts);
+    });
+
   await program.parseAsync(argv, { from: "user" });
 }
 
