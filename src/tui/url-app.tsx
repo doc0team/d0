@@ -325,11 +325,14 @@ function UrlBrowseApp({
   startUrl,
   config,
   listOpts,
+  landingUrl,
   onExit,
 }: {
   startUrl: string;
   config: D0Config;
   listOpts?: ListDocUrlsOptions;
+  /** When set, the TUI skips the home menu and opens directly on this page after discovery. */
+  landingUrl?: string;
   onExit: () => void;
 }) {
   const { exit } = useApp();
@@ -380,21 +383,59 @@ function UrlBrowseApp({
       try {
         const list = await listDocUrls(startUrl, listOpts);
         if (cancelled) return;
-        if (!list.length) {
+        // If the user asked for a specific landing page, make sure it's in the nav list even
+        // if llms/sitemap/nav discovery missed it. That way going "back" from the page returns
+        // to TOC and the page is still reachable there.
+        const pagesWithLanding = landingUrl && !list.includes(landingUrl) ? [landingUrl, ...list] : list;
+        if (!pagesWithLanding.length) {
           setIndexState("error");
           setIndexError("No doc pages discovered for this URL.");
           setPages([]);
           setExpandedPrefixes(new Set());
           return;
         }
-        setPages(list);
-        setSelectedIndex(0);
-        const trie = buildPathTrie(list, resolveBrowseBaseUrl(startUrl).origin);
+        setPages(pagesWithLanding);
+        const origin = resolveBrowseBaseUrl(startUrl).origin;
+        const trie = buildPathTrie(pagesWithLanding, origin);
         const ex = defaultExpandedPrefixes(trie);
+
+        if (landingUrl) {
+          // Expand every ancestor directory of the landing page so the row is visible in TOC.
+          try {
+            const landingPath = new URL(landingUrl).pathname;
+            const parts = landingPath.split("/").filter(Boolean);
+            for (let i = 0; i < parts.length; i++) {
+              ex.add("/" + parts.slice(0, i + 1).join("/") + "/");
+              ex.add("/" + parts.slice(0, i + 1).join("/"));
+            }
+          } catch {
+            /* ignore */
+          }
+        }
         setExpandedPrefixes(ex);
-        const first =
-          firstPageUrlInRows(flattenPathTrie(trie, ex)) ?? (list.length ? list[0]! : "");
-        if (first) history.reset(first);
+
+        const rows = flattenPathTrie(trie, ex);
+        const landingRowIx = landingUrl
+          ? rows.findIndex((r) => r.kind === "page" && r.url === landingUrl)
+          : -1;
+        if (landingRowIx >= 0) {
+          setSelectedIndex(landingRowIx);
+        } else {
+          setSelectedIndex(0);
+        }
+
+        if (landingUrl) {
+          // Skip the home menu: go straight into reading the requested page, preserving history
+          // so `b` returns to TOC.
+          history.reset(landingUrl);
+          setReadUrl(landingUrl);
+          setMode("read");
+          setPhase("app");
+        } else {
+          const first = firstPageUrlInRows(rows) ?? (pagesWithLanding.length ? pagesWithLanding[0]! : "");
+          if (first) history.reset(first);
+        }
+
         setIndexState("ready");
       } catch (e) {
         if (cancelled) return;
@@ -407,7 +448,7 @@ function UrlBrowseApp({
     return () => {
       cancelled = true;
     };
-  }, [startUrl, listKey, history]);
+  }, [startUrl, listKey, history, landingUrl]);
 
   useEffect(() => {
     if (mode !== "toc" || phase !== "app") return;
@@ -936,12 +977,22 @@ export async function runUrlBrowseTui(
   startUrl: string,
   config: D0Config,
   listOpts?: ListDocUrlsOptions,
+  landingUrl?: string,
 ): Promise<void> {
   await new Promise<void>((resolve) => {
-    render(<UrlBrowseApp startUrl={startUrl} config={config} listOpts={listOpts} onExit={resolve} />, {
-      alternateScreen: true,
-      exitOnCtrlC: true,
-    });
+    render(
+      <UrlBrowseApp
+        startUrl={startUrl}
+        config={config}
+        listOpts={listOpts}
+        landingUrl={landingUrl}
+        onExit={resolve}
+      />,
+      {
+        alternateScreen: true,
+        exitOnCtrlC: true,
+      },
+    );
   });
 }
 

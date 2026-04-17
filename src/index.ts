@@ -10,7 +10,6 @@ import { cmdSearch, cmdSearchUrl } from "./commands/search.js";
 import { cmdBrowse, cmdBrowseUrl, cmdBrowseUrlHome } from "./commands/browse.js";
 import { cmdInit } from "./commands/init.js";
 import { cmdBuild } from "./commands/build.js";
-import { cmdPublish } from "./commands/publish.js";
 import { cmdImport } from "./commands/import.js";
 import { cmdMcp } from "./commands/mcp.js";
 import { cmdMcpInstall } from "./commands/mcp-install.js";
@@ -18,6 +17,7 @@ import { cmdBrowseOpenTui } from "./commands/opentui.js";
 import { cmdIngestBundle, cmdIngestUrl } from "./commands/ingest.js";
 import { cmdDoctor } from "./commands/doctor.js";
 import { cmdSuggest } from "./commands/suggest.js";
+import { cmdRegistrySync, cmdRegistryStatus } from "./commands/registry.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -26,7 +26,6 @@ const GLOBAL = new Set([
   "update",
   "init",
   "build",
-  "publish",
   "import",
   "mcp",
   "ls",
@@ -37,6 +36,7 @@ const GLOBAL = new Set([
   "ingest",
   "doctor",
   "suggest",
+  "registry",
   "help",
   "-h",
   "--help",
@@ -75,8 +75,10 @@ async function runBundleCommand(
   if (isUrlLike(pkg)) {
     const { rest, json, raw, external, ink } = splitFlags(argv);
     const [sub, ...tail] = rest;
+    // Bare `doc0 <url>` mirrors `doc0 <bundle>`: open the Ink TUI.
+    // Non-TTY stdio falls back inside cmdBrowseUrl with a helpful message.
     if (!sub || sub.startsWith("-")) {
-      await cmdReadUrl(pkg, { json, raw }, config);
+      await cmdBrowseUrl(pkg, { external, ink }, config);
       return;
     }
     if (sub === "browse") {
@@ -139,7 +141,7 @@ async function main(): Promise<void> {
 
   const program = new Command();
   program
-    .name("d0")
+    .name("doc0")
     .description("Terminal-native documentation — browse docs in the CLI; same commands for humans and agents.")
     .version("0.1.0")
     .option("--json", "force JSON output where applicable")
@@ -166,9 +168,11 @@ async function main(): Promise<void> {
 
   program
     .command("update")
-    .argument("[bundle]", "optional bundle name")
-    .action(async (name: string | undefined) => {
-      await cmdUpdate(name, config);
+    .description("self-update the doc0 CLI to the latest version on npm")
+    .option("--check", "only report the latest version; don't install")
+    .option("--json", "JSON output")
+    .action(async (opts: { check?: boolean; json?: boolean }) => {
+      await cmdUpdate(opts);
     });
 
   program
@@ -248,13 +252,6 @@ async function main(): Promise<void> {
     });
 
   program
-    .command("publish")
-    .argument("[dir]", "bundle root", ".")
-    .action(async (dir: string) => {
-      await cmdPublish(dir);
-    });
-
-  program
     .command("import")
     .argument("<source>", "markdown directory or single .md file")
     .requiredOption("--name <scoped>", 'bundle name, e.g. "@acme/imported"')
@@ -266,7 +263,7 @@ async function main(): Promise<void> {
   const mcpCmd = program.command("mcp").description("Model Context Protocol — stdio server or Cursor setup");
   mcpCmd
     .command("install")
-    .description("add d0 to Cursor MCP config (merge into mcp.json)")
+    .description("add doc0 to Cursor MCP config (merge into mcp.json)")
     .option("--project", "write .cursor/mcp.json in the current directory instead of ~/.cursor/mcp.json")
     .option("--dry-run", "print merged JSON without writing")
     .option("--yes", "replace an existing mcpServers.d0 entry without prompting")
@@ -315,11 +312,29 @@ async function main(): Promise<void> {
 
   program
     .command("suggest")
-    .description("scan ./package.json dependencies and report which ones have d0 registry coverage")
+    .description("scan ./package.json dependencies and report which ones have doc0 registry coverage")
     .argument("[dir]", "project directory containing package.json", ".")
     .option("--json", "JSON output")
     .action(async (dir: string, opts: { json?: boolean }) => {
       await cmdSuggest(dir, opts);
+    });
+
+  const registryCmd = program
+    .command("registry")
+    .description("community registry (single JSON file on GitHub; set registryUrl in ~/.d0rc)");
+  registryCmd
+    .command("sync")
+    .description("force-refresh the community registry cache (~/.d0/community-registry.json)")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdRegistrySync(opts, config);
+    });
+  registryCmd
+    .command("status")
+    .description("show configured registryUrl and the current cache state")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdRegistryStatus(opts, config);
     });
 
   await program.parseAsync(argv, { from: "user" });

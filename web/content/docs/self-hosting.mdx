@@ -1,0 +1,44 @@
+---
+title: Self-hosting the registry
+description: Run your own registry for a team or an air-gapped network.
+---
+
+The community registry is a static JSON file on raw.githubusercontent.com. Your registry can be any URL that serves a JSON file with the same shape.
+
+## 1. Fork or fresh-copy the template
+
+The files to ship to your registry repo are in [`examples/d0-registry-template/`](https://github.com/doc0team/d0/tree/main/examples/d0-registry-template) of the doc0 source:
+
+- `README.md` — what the registry is
+- `CONTRIBUTING.md` — PR rules
+- `.github/workflows/validate.yml` — CI JSON-shape validation
+
+Plus a `registry.json` — copy the starter from the main doc0 package root.
+
+## 2. Point users at it
+
+```yaml
+# ~/.d0rc
+registryUrl: https://raw.githubusercontent.com/myorg/internal-d0-registry/main/registry.json
+```
+
+Or, for CI / ephemeral environments:
+
+```bash
+export D0_REGISTRY_URL=https://raw.githubusercontent.com/myorg/internal-d0-registry/main/registry.json
+```
+
+## 3. Air-gapped? Skip the network entirely.
+
+```yaml
+# ~/.d0rc
+registryUrl: false
+```
+
+doc0 will then use only:
+
+- your installed bundles
+- entries you've added to `~/.d0/docs-registry.json`
+- the shipped seed in the npm package
+
+You can pre-populate `~/.d0/bundles/` with internal docs and have a fully offline install. No fetches, ever.

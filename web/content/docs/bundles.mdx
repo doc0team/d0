@@ -1,0 +1,53 @@
+---
+title: Bundles
+description: Package your own docs as a doc0 bundle and ship it.
+---
+
+A doc0 bundle is a folder with a `d0.json` and a tree of Markdown files. `doc0 add` turns any markdown folder into one.
+
+## From an existing folder
+
+```bash
+doc0 add ./my-docs
+```
+
+doc0 infers:
+
+- **name** from `--name`, `package.json`, or the folder name
+- **version** from `package.json` or `"0.1.0"`
+- **pages** from `.md` / `.mdx` / `.markdown` files, skipping common ignore patterns
+
+It writes a synthetic `d0.json`, installs into `~/.d0/bundles/<scope>__<name>/<version>`, and cleans up.
+
+## Hand-authored bundles
+
+If you want control over the nav tree, drop a `d0.json` at the root:
+
+```jsonc
+{
+  "name": "@yourorg/lib",
+  "version": "1.2.0",
+  "bin": "yourorg-lib-docs",
+  "pages": [
+    { "slug": "intro", "file": "intro.md", "title": "Introduction" },
+    { "slug": "api", "file": "api.md", "title": "API reference" }
+  ]
+}
+```
+
+Install locally:
+
+```bash
+doc0 add --local ./my-bundle
+doc0 @yourorg/lib
+```
+
+## Distributing
+
+Until a doc0 package registry exists, bundles ship via existing mechanisms:
+
+- **Git**: clone + `doc0 add --local .` in a readme step
+- **npm**: include the `d0.json` + `.md` files, then `npm install <pkg>` + point doc0 at `node_modules/<pkg>`
+- **CDN tarball**: `doc0 install <url>` (coming soon)
+
+For agent-only use, adding the folder to `~/.d0/bundles` directly is also fine — that's what `add` does under the hood.

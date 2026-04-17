@@ -26,13 +26,13 @@ export async function cmdImport(
   opts: { name?: string; out?: string },
 ): Promise<void> {
   if (!source?.trim()) {
-    console.error("Usage: d0 import <path-to-markdown-dir> --name @scope/pkg [--out dir]");
+    console.error("Usage: doc0 import <path-to-markdown-dir> --name @scope/pkg [--out dir]");
     process.exitCode = 1;
     return;
   }
   const name = opts.name?.trim();
   if (!name || !name.startsWith("@") || !name.includes("/")) {
-    console.error("d0 import: --name @scope/package is required");
+    console.error("doc0 import: --name @scope/package is required");
     process.exitCode = 1;
     return;
   }
@@ -55,21 +55,21 @@ export async function cmdImport(
       console.log(`Imported single file into ${outDir}`);
       return;
     }
-    console.error("d0 import: source must be a directory of markdown or a single .md file");
+    console.error("doc0 import: source must be a directory of markdown or a single .md file");
     process.exitCode = 1;
     return;
   }
 
   const outDir = path.resolve(opts.out ?? "./imported-bundle");
   if (existsSync(path.join(outDir, "d0.json"))) {
-    console.error(`d0 import: ${outDir} already has d0.json — pick a different --out`);
+    console.error(`doc0 import: ${outDir} already has d0.json — pick a different --out`);
     process.exitCode = 1;
     return;
   }
 
   const mdFiles = await collectMarkdownFiles(src);
   if (!mdFiles.length) {
-    console.error("d0 import: no .md files found");
+    console.error("doc0 import: no .md files found");
     process.exitCode = 1;
     return;
   }
@@ -94,5 +94,5 @@ export async function cmdImport(
   };
   await writeFile(path.join(outDir, "d0.json"), JSON.stringify(manifest, null, 2) + "\n", "utf8");
   console.log(`Imported ${mdFiles.length} pages into ${outDir}`);
-  console.log("Run: d0 build " + outDir);
+  console.log("Run: doc0 build " + outDir);
 }

@@ -10,8 +10,8 @@ export async function cmdBuild(dirArg: string | undefined): Promise<void> {
   try {
     bundle = await loadBundle(dir);
   } catch (e) {
-    if (e instanceof ManifestError) console.error(`d0 build: ${e.message}`);
-    else console.error(`d0 build: ${e instanceof Error ? e.message : String(e)}`);
+    if (e instanceof ManifestError) console.error(`doc0 build: ${e.message}`);
+    else console.error(`doc0 build: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
     return;
   }
@@ -24,7 +24,7 @@ export async function cmdBuild(dirArg: string | undefined): Promise<void> {
   try {
     await tar.c({ gzip: true, file: outPath, cwd: dir }, files);
   } catch (e) {
-    console.error(`d0 build: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`doc0 build: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
     return;
   }

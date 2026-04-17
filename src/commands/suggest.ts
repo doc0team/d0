@@ -61,7 +61,7 @@ export async function cmdSuggest(dir: string, opts: { json?: boolean }): Promise
   const deps = await readProjectDeps(dir);
   if ("error" in deps) {
     if (opts.json) console.log(JSON.stringify({ error: deps.error }));
-    else console.error(`d0 suggest: ${deps.error}`);
+    else console.error(`doc0 suggest: ${deps.error}`);
     process.exitCode = 1;
     return;
   }
@@ -97,7 +97,7 @@ export async function cmdSuggest(dir: string, opts: { json?: boolean }): Promise
     return;
   }
 
-  console.log(`d0 suggest: scanned ${deps.length} deps in ${path.resolve(dir, "package.json")}\n`);
+  console.log(`doc0 suggest: scanned ${deps.length} deps in ${path.resolve(dir, "package.json")}\n`);
   if (matches.length === 0) {
     console.log("No registry coverage for any dependency.");
   } else {
@@ -109,7 +109,7 @@ export async function cmdSuggest(dir: string, opts: { json?: boolean }): Promise
       );
     }
     console.log("\nTry:");
-    console.log(`  d0 ${matches[0]!.entry.id}`);
+    console.log(`  doc0 ${matches[0]!.entry.id}`);
     console.log(`  (or in MCP) find_docs("${matches[0]!.entry.id}")`);
   }
 

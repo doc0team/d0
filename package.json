@@ -1,5 +1,5 @@
 {
-  "name": "d0",
+  "name": "doc0",
   "version": "0.1.0",
   "description": "Terminal-native documentation platform — browse docs in the CLI; same commands for humans and agents.",
   "type": "module",
@@ -8,6 +8,7 @@
     ".": "./dist/index.js"
   },
   "bin": {
+    "doc0": "dist/index.js",
     "d0": "dist/index.js"
   },
   "scripts": {
@@ -15,6 +16,7 @@
     "dev": "node --import tsx src/index.ts",
     "opentui:dev": "bun src/opentui-browser.ts",
     "start": "node dist/index.js",
+    "sync-registry": "node scripts/sync-registry.mjs",
     "prepublishOnly": "npm run build"
   },
   "engines": {
@@ -34,6 +36,7 @@
   },
   "files": [
     "dist",
+    "registry.json",
     "README.md"
   ],
   "dependencies": {

@@ -12,7 +12,7 @@ export async function cmdRead(
   config: D0Config,
 ): Promise<void> {
   if (!slug?.trim()) {
-    console.error("Usage: d0 <pkg> read <slug>");
+    console.error("Usage: doc0 <pkg> read <slug>");
     process.exitCode = 1;
     return;
   }
@@ -28,7 +28,7 @@ export async function cmdRead(
   try {
     md = await readPageMarkdown(bundle, slug.trim());
   } catch {
-    console.error(`d0 read: unknown slug: ${slug}`);
+    console.error(`doc0 read: unknown slug: ${slug}`);
     process.exitCode = 1;
     return;
   }
@@ -65,7 +65,7 @@ export async function cmdReadUrl(
   config: D0Config,
 ): Promise<void> {
   if (!isUrlLike(url)) {
-    console.error(`d0 read: invalid URL: ${url}`);
+    console.error(`doc0 read: invalid URL: ${url}`);
     process.exitCode = 1;
     return;
   }
@@ -87,7 +87,7 @@ export async function cmdReadUrl(
       await markdownToTerminal(page.markdown, config.theme, { contentWidth: Math.max(40, ttyCols - 2) }),
     );
   } catch (e) {
-    console.error(`d0 read: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`doc0 read: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
   }
 }

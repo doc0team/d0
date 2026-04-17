@@ -125,7 +125,7 @@ export async function cmdDoctor(opts: { json?: boolean }): Promise<void> {
     return;
   }
 
-  console.log(`d0 doctor — ${results.length} registry entries\n`);
+  console.log(`doc0 doctor — ${results.length} registry entries\n`);
   for (const r of results) console.log(renderCheck(r));
 
   const okCount = results.filter((r) => r.status === "ok").length;

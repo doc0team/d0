@@ -1,0 +1,53 @@
+---
+title: Getting started
+description: Install doc0 and read your first doc in under a minute.
+---
+
+## Install
+
+```bash
+npm install -g doc0
+```
+
+Requires Node 22.13+. No Rust, no native binaries, no database.
+
+> The binary installs as **`doc0`** (primary) with **`d0`** as a short alias. Every example below works with either — use whichever your fingers prefer.
+
+## Browse something
+
+Every registry entry is addressable by id:
+
+```bash
+doc0 ls                       # list every entry doc0 knows about
+doc0 stripe                   # open the TUI on Stripe docs
+doc0 stripe search webhooks   # full-text search inside a bundle / URL source
+doc0 stripe read webhooks/quickstart --raw   # dump a page as Markdown
+```
+
+The first call to a URL source fetches `llms-full.txt` when available (one HTTP call, whole corpus), falls back to sitemap + llms.txt otherwise, and caches everything for 24 hours.
+
+You can also point doc0 at a docs URL directly — no registry entry required:
+
+```bash
+doc0 https://nextjs.org/docs              # open the URL TUI
+doc0 read https://docs.stripe.com/webhooks # print a single page as Markdown
+doc0 search https://vercel.com/docs caching
+```
+
+## Add your own docs
+
+```bash
+doc0 add ./my-docs            # any folder with .md / .mdx
+doc0 @local/my-docs           # browse it in the TUI
+```
+
+doc0 infers the bundle name from `package.json` or the folder name, extracts headings for nav, and indexes everything with MiniSearch.
+
+## Wire up your agent
+
+```bash
+doc0 mcp install              # one-shot: merges doc0 into ~/.cursor/mcp.json
+doc0 mcp                      # or run the stdio MCP server manually
+```
+
+See [MCP](/docs/mcp) for the tool schema and installed-only mode.

@@ -7,14 +7,14 @@ export async function runMcpServer(): Promise<void> {
     { name: "d0", version: "0.1.0" },
     {
       instructions:
-        "d0 docs runtime: search/list docs, open a docs source with open_docs, then list_nodes/read_node/search_nodes using doc_id.",
+        "doc0 docs runtime: search/list docs, open a docs source with open_docs, then list_nodes/read_node/search_nodes using doc_id.",
     },
   );
   registerD0Tools(server);
   const transport = new StdioServerTransport();
   // MCP uses stdout for JSON-RPC only; stderr is safe for humans.
   console.error(
-    "d0 mcp: listening on stdio (stdout stays silent by design). Use an MCP host (e.g. Cursor) to spawn this process; it waits for JSON-RPC on stdin.",
+    "doc0 mcp: listening on stdio (stdout stays silent by design). Use an MCP host (e.g. Cursor) to spawn this process; it waits for JSON-RPC on stdin.",
   );
   await server.connect(transport);
 }

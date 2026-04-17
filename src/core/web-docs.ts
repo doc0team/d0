@@ -100,6 +100,109 @@ export function resolveBrowseBaseUrl(input: string): URL {
   return normalizeInputUrl(input);
 }
 
+/**
+ * Path segments that canonically mark the root of a docs tree on a *general-purpose* host.
+ * Used only when the hostname itself is NOT docs-dedicated (see `isDocsDedicatedHost`).
+ * We pick the deepest recognized segment so locale-namespaced sites (`/en/docs/...`) still
+ * get a scoped prefix instead of origin-wide discovery.
+ */
+const DOCS_ROOT_SEGMENTS = new Set([
+  "docs",
+  "doc",
+  "documentation",
+  "guides",
+  "guide",
+  "learn",
+  "reference",
+  "references",
+  "api",
+  "manual",
+  "tutorial",
+  "tutorials",
+  "handbook",
+  "developer",
+  "developers",
+]);
+
+/**
+ * True when the entire host is docs content (e.g. `docs.stack-auth.com`, `developers.google.com`).
+ * Such hosts serve docs across many path trees (`/docs/*`, `/api/*`, `/reference/*`), so scoping
+ * discovery to a single path prefix would miss the rest of the site.
+ */
+function isDocsDedicatedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "readthedocs.io" || h === "readthedocs.org") return true;
+  if (h.endsWith(".readthedocs.io") || h.endsWith(".readthedocs.org")) return true;
+  const firstLabel = h.split(".")[0] ?? "";
+  return (
+    firstLabel === "docs" ||
+    firstLabel === "doc" ||
+    firstLabel === "developer" ||
+    firstLabel === "developers"
+  );
+}
+
+export interface BrowseTargets {
+  /** URL to feed to `listDocUrls` — controls discovery scope + prefix filter. */
+  discoveryBase: string;
+  /** Specific page the user wants open on TUI launch. `null` when discoveryBase IS the page. */
+  landingUrl: string | null;
+}
+
+/**
+ * Given a user-entered URL, produce:
+ *   - `discoveryBase`: the URL to scope discovery against
+ *   - `landingUrl`:    the full URL the user typed (or `null` if it already IS the discovery base)
+ *
+ * Rules:
+ *   1. Docs-dedicated host (`docs.*`, `developer.*`, `*.readthedocs.io`): discovery = origin,
+ *      so sibling trees like `/api` and `/reference` are included. Land on the typed page.
+ *   2. General host with a recognized docs-root segment in the path (`vercel.com/docs/...`,
+ *      `nextjs.org/docs/...`): discovery = origin + that prefix. Land on the typed page.
+ *   3. General host with no recognized segment: discovery = origin, land on the typed page.
+ *
+ * Examples:
+ *   `docs.stack-auth.com/docs/overview`       → base `https://docs.stack-auth.com/`,  landing `…/docs/overview`
+ *   `docs.stack-auth.com/api/users`           → base `https://docs.stack-auth.com/`,  landing `…/api/users`
+ *   `docs.anthropic.com/en/docs/welcome`      → base `https://docs.anthropic.com/`,   landing `…/en/docs/welcome`
+ *   `vercel.com/docs/getting-started`         → base `https://vercel.com/docs/`,      landing `…/docs/getting-started`
+ *   `nextjs.org/docs/app/routing`             → base `https://nextjs.org/docs/`,      landing `…/docs/app/routing`
+ *   `docs.stack-auth.com`                     → base `https://docs.stack-auth.com/`,  landing `null`
+ *   `vercel.com/docs`                         → base `https://vercel.com/docs/`,      landing `null`
+ */
+export function deriveBrowseTargets(input: string): BrowseTargets {
+  const u = normalizeInputUrl(input);
+  const fullUrl = u.toString();
+  const segs = u.pathname.split("/").filter(Boolean);
+  const originOnly = new URL("/", u.origin).toString();
+
+  // Rule 1: docs-dedicated host → no path-prefix scoping.
+  if (isDocsDedicatedHost(u.hostname)) {
+    return { discoveryBase: originOnly, landingUrl: segs.length ? fullUrl : null };
+  }
+
+  // Rule 3 (empty path on general host).
+  if (segs.length === 0) {
+    return { discoveryBase: originOnly, landingUrl: null };
+  }
+
+  // Rule 2: look for a recognized docs-root segment.
+  let rootDepth = -1;
+  for (let i = 0; i < segs.length; i++) {
+    if (DOCS_ROOT_SEGMENTS.has(segs[i]!.toLowerCase())) rootDepth = i + 1;
+  }
+
+  if (rootDepth === -1) {
+    // Rule 3: general host, no docs segment.
+    return { discoveryBase: originOnly, landingUrl: fullUrl };
+  }
+
+  const rootPath = "/" + segs.slice(0, rootDepth).join("/") + "/";
+  const discoveryBase = new URL(rootPath, u.origin).toString();
+  const deeperThanRoot = segs.length > rootDepth;
+  return { discoveryBase, landingUrl: deeperThanRoot ? fullUrl : null };
+}
+
 function cleanUrl(raw: string, base: URL): string | null {
   try {
     const u = new URL(raw, base);
@@ -109,6 +212,29 @@ function cleanUrl(raw: string, base: URL): string | null {
     return u.toString();
   } catch {
     return null;
+  }
+}
+
+/**
+ * When a registry source points at a sub-path (e.g. `better-auth.com/docs`), scope discovery
+ * and content filtering to that sub-tree. Returns the prefix with trailing slash (`"/docs/"`)
+ * or `null` when the base is the site root.
+ */
+function docPathPrefix(base: URL): string | null {
+  const p = base.pathname;
+  if (!p || p === "/") return null;
+  return p.endsWith("/") ? p : p + "/";
+}
+
+/** True when `url`'s path is inside `prefix` (prefix already ends with `/`). */
+function pathStartsWithPrefix(url: string, prefix: string | null): boolean {
+  if (!prefix) return true;
+  try {
+    const path = new URL(url).pathname;
+    const withSlash = path.endsWith("/") ? path : path + "/";
+    return withSlash.startsWith(prefix);
+  } catch {
+    return false;
   }
 }
 
@@ -246,11 +372,17 @@ function extractCandidateLinks(html: string, base: URL): string[] {
   return [...out];
 }
 
-/** Where to fetch llms.txt (see https://llmstxt.org/ — root is standard; subpaths are allowed). */
+/**
+ * Where to fetch llms.txt (see https://llmstxt.org/ — root is standard; subpaths are allowed).
+ * When base has a sub-path like `/docs`, try the scoped `<base>/llms.txt` first so we pick up
+ * a docs-only variant when the site publishes one. The root variant still wins via prefix
+ * filtering at the URL-list level, so nothing breaks for sites that only publish at root.
+ */
 function llmsTxtFetchUrls(base: URL): string[] {
   const root = new URL("/llms.txt", base).toString();
   const beside = new URL("llms.txt", base).toString();
-  return root === beside ? [root] : [root, beside];
+  if (root === beside) return [root];
+  return base.pathname === "/" ? [root, beside] : [beside, root];
 }
 
 /**
@@ -308,7 +440,8 @@ async function listFromLlmsTxt(base: URL): Promise<string[]> {
 function llmsFullTxtFetchUrls(base: URL): string[] {
   const root = new URL("/llms-full.txt", base).toString();
   const beside = new URL("llms-full.txt", base).toString();
-  return root === beside ? [root] : [root, beside];
+  if (root === beside) return [root];
+  return base.pathname === "/" ? [root, beside] : [beside, root];
 }
 
 export type LlmsFullChunk = { heading: string; body: string };
@@ -393,6 +526,41 @@ function splitLlmsFullIntoChunks(markdown: string): LlmsFullChunk[] {
     }
   }
   return out;
+}
+
+/**
+ * Best-effort first-URL extraction from a chunk's heading + leading body text. llms-full.txt
+ * conventionally puts a "Source: https://…" / "URL: https://…" line near the section start,
+ * or uses a linked heading like `## [Install](https://…)`. We take the first `http(s)://…` we
+ * find in the first ~800 chars and treat it as the chunk's canonical URL.
+ */
+function firstUrlInChunk(chunk: LlmsFullChunk): string | null {
+  const head = `${chunk.heading}\n${chunk.body.slice(0, 800)}`;
+  const m = head.match(/https?:\/\/[^\s)\]>"'`]+/);
+  return m ? m[0] : null;
+}
+
+/**
+ * Drop chunks whose canonical URL is outside `prefix`. Chunks with no detectable URL are kept
+ * (we can't tell; err toward inclusion). No-op when `prefix` is null.
+ */
+function filterLlmsFullChunksByPrefix(
+  chunks: LlmsFullChunk[],
+  origin: string,
+  prefix: string | null,
+): LlmsFullChunk[] {
+  if (!prefix) return chunks;
+  return chunks.filter((chunk) => {
+    const url = firstUrlInChunk(chunk);
+    if (!url) return true;
+    try {
+      const u = new URL(url);
+      if (u.origin !== origin) return true;
+      return pathStartsWithPrefix(url, prefix);
+    } catch {
+      return true;
+    }
+  });
 }
 
 export interface DocsSourceProbe {
@@ -492,13 +660,25 @@ export async function fetchLlmsFullTxt(input: string): Promise<LlmsFullTxt | nul
   const cached = llmsFullCache.get(cacheKey);
   if (cached && now() - cached.ts <= LLMS_FULL_TTL_MS) return cached.value;
 
+  const prefix = docPathPrefix(base);
+  const scopedUrl = new URL("llms-full.txt", base).toString();
+
   for (const url of llmsFullTxtFetchUrls(base)) {
     try {
       const text = await fetchText(url);
       const trimmed = text.trim();
       if (!trimmed || looksLikeHtmlDocument(trimmed)) continue;
-      const chunks = splitLlmsFullIntoChunks(trimmed);
-      const value: LlmsFullTxt = { url, markdown: trimmed, chunks };
+      const allChunks = splitLlmsFullIntoChunks(trimmed);
+      // If we fetched the scoped variant (beside `<base>/llms-full.txt`), trust it as pre-scoped.
+      // If we fell back to the root variant for a sub-path base, filter chunks by the prefix so
+      // agents don't get marketing / blog content when they asked for `/docs`.
+      const chunks =
+        prefix && url !== scopedUrl
+          ? filterLlmsFullChunksByPrefix(allChunks, base.origin, prefix)
+          : allChunks;
+      if (chunks.length === 0) continue;
+      const markdown = prefix && url !== scopedUrl ? chunks.map((c) => c.body).join("\n\n").trim() : trimmed;
+      const value: LlmsFullTxt = { url, markdown, chunks };
       llmsFullCache.set(cacheKey, { ts: now(), value });
       return value;
     } catch {
@@ -522,6 +702,7 @@ function extractSitemapLocs(xml: string): string[] {
 /** Page URLs from `/sitemap.xml` (plain urlset or sitemap index pointing at nested maps). */
 async function listFromSitemap(base: URL): Promise<string[]> {
   const origin = base.origin;
+  const prefix = docPathPrefix(base);
   const primary = new URL("/sitemap.xml", base).toString();
   let rootXml: string;
   try {
@@ -555,6 +736,7 @@ async function listFromSitemap(base: URL): Promise<string[]> {
         const u = new URL(c);
         if (u.origin !== origin) continue;
         if (u.pathname === "/" || u.pathname.length < 2) continue;
+        if (!pathStartsWithPrefix(c, prefix)) continue;
         pages.add(c);
       } catch {
         /* skip */
@@ -575,6 +757,7 @@ export async function listDocUrls(input: string, opts?: ListDocUrlsOptions): Pro
   if (cached) return cached;
 
   const origin = base.origin;
+  const prefix = docPathPrefix(base);
   const merged = new Set<string>([base.toString()]);
   const sitemapMatchKeys = new Set<string>();
 
@@ -598,6 +781,9 @@ export async function listDocUrls(input: string, opts?: ListDocUrlsOptions): Pro
       }
       const parsed = new URL(u);
       if (parsed.origin !== origin) continue;
+      // Honor the configured sub-path when the registry source is scoped (e.g. `/docs`).
+      // Most sites publish llms.txt at root with the full site listed; this filter keeps discovery tight.
+      if (!pathStartsWithPrefix(u, prefix)) continue;
       /**
        * Some sites publish a full-doc dump in `llms.txt` where inline links are not canonical doc routes
        * (e.g. `/apps/*`, `/getting-started`, marketing links). When sitemap exists, trust sitemap for
@@ -614,6 +800,7 @@ export async function listDocUrls(input: string, opts?: ListDocUrlsOptions): Pro
     sitemapUrls.length >= MIN_SITEMAP_URLS_TO_FILTER_NAV && sitemapMatchKeys.size > 0;
   for (const u of navLinks) {
     if (strictNav && !sitemapMatchKeys.has(pageUrlMatchKey(u))) continue;
+    if (!pathStartsWithPrefix(u, prefix)) continue;
     merged.add(u);
   }
 

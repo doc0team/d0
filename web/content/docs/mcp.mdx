@@ -1,0 +1,64 @@
+---
+title: Using doc0 with an AI agent
+description: Wire doc0 into Claude Desktop, Cursor, or any MCP client in under a minute.
+---
+
+doc0 speaks [Model Context Protocol](https://modelcontextprotocol.io) over stdio. Four tools, all the agent needs.
+
+## Tools
+
+| Tool | What it does |
+| --- | --- |
+| `list_docs()` | Enumerate every registered source (installed bundles + user-added + community + seed). |
+| `find_docs({ query })` | Registry search. Returns matches; for the top match, inlines the root tree and notes whether `llms-full.txt` is available and how many chunks it has. |
+| `read_docs({ id, path?, full? })` | Read by id. No path → root tree. Directory path → subtree. Page URL/slug → Markdown. `full: true` → the full `llms-full.txt` dump. `full: "heading substring"` → a single matching chunk. |
+| `grep_docs({ id, query })` | Full-text search within a source. Prefers the local `~/.d0/docs-store` cache; falls back to the bundle index, or a bounded live fetch when a URL source has no cache yet. |
+
+Most agent flows are *one* `find_docs` call followed by *one* `read_docs` call. That's the whole point.
+
+## Wire it up
+
+### One-shot (Cursor)
+
+```bash
+doc0 mcp install                 # merges into ~/.cursor/mcp.json
+doc0 mcp install --project       # writes ./.cursor/mcp.json instead
+doc0 mcp install --dry-run       # print the merged JSON; write nothing
+```
+
+### Manual (Claude Desktop)
+
+```jsonc
+// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "d0": {
+      "command": "doc0",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Manual (Cursor)
+
+```jsonc
+// ~/.cursor/mcp.json
+{
+  "mcpServers": {
+    "d0": { "command": "doc0", "args": ["mcp"] }
+  }
+}
+```
+
+The `mcpServers.d0` key is kept stable for backward compatibility — the *command* is `doc0`, the *key* stays `d0`.
+
+## Installed-only mode
+
+For teams who only want their curated bundles (and no community URL entries) exposed to agents:
+
+```bash
+doc0 mcp --installed-only
+```
+
+or set `D0_MCP_INSTALLED_ONLY=1`. Hides every community + seed entry; installed bundles and user-added registry entries stay visible.

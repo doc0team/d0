@@ -23,7 +23,7 @@ export async function cmdLsGlobal(opts: { json?: boolean; raw?: boolean }, confi
     return;
   }
   if (!installed.length) {
-    console.log("No bundles installed. Try: d0 add --local ./examples/example-lib");
+    console.log("No bundles installed. Try: doc0 add --local ./examples/example-lib");
     return;
   }
   for (const b of installed) {
@@ -38,7 +38,7 @@ export async function cmdLsUrl(
   config: D0Config,
 ): Promise<void> {
   if (!isUrlLike(target)) {
-    console.error(`d0 ls: invalid URL target: ${target}`);
+    console.error(`doc0 ls: invalid URL target: ${target}`);
     process.exitCode = 1;
     return;
   }
@@ -57,7 +57,7 @@ export async function cmdLsUrl(
     console.log(`Discovered ${pages.length} page(s):\n`);
     for (const p of pages) console.log(`  ${p}`);
   } catch (e) {
-    console.error(`d0 ls: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`doc0 ls: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
   }
 }

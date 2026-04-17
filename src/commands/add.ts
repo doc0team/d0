@@ -117,9 +117,9 @@ async function installExistingBundleDir(abs: string): Promise<void> {
     loaded = await loadBundle(abs);
   } catch (e) {
     if (e instanceof ManifestError || e instanceof BundleError) {
-      console.error(`d0 add: ${e.message}`);
+      console.error(`doc0 add: ${e.message}`);
     } else {
-      console.error(`d0 add: ${e instanceof Error ? e.message : String(e)}`);
+      console.error(`doc0 add: ${e instanceof Error ? e.message : String(e)}`);
     }
     process.exitCode = 1;
     return;
@@ -136,7 +136,7 @@ async function installFolder(abs: string, explicitName: string | undefined): Pro
   try {
     built = await buildSyntheticBundle(abs, name, version);
   } catch (e) {
-    console.error(`d0 add: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`doc0 add: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
     return;
   }
@@ -161,7 +161,7 @@ export async function cmdAdd(
     const abs = path.resolve(opts.local);
     const st = await stat(abs).catch(() => null);
     if (!st?.isDirectory()) {
-      console.error(`d0 add: not a directory: ${abs}`);
+      console.error(`doc0 add: not a directory: ${abs}`);
       process.exitCode = 1;
       return;
     }
@@ -171,7 +171,7 @@ export async function cmdAdd(
 
   const arg = bundleArg?.trim();
   if (!arg) {
-    console.error("Usage: d0 add <path-to-docs-folder>   or   d0 add <@scope/name> (registry not live yet)");
+    console.error("Usage: doc0 add <path-to-docs-folder>   or   doc0 add <@scope/name> (registry not live yet)");
     process.exitCode = 1;
     return;
   }
@@ -202,9 +202,9 @@ export async function cmdAdd(
     console.error(`Would install ${meta.name}@${meta.version} from ${meta.tarballUrl}`);
   } catch (e) {
     if (e instanceof RegistryError) {
-      console.error(`d0 add: ${e.message}`);
+      console.error(`doc0 add: ${e.message}`);
     } else {
-      console.error(`d0 add: ${e instanceof Error ? e.message : String(e)}`);
+      console.error(`doc0 add: ${e instanceof Error ? e.message : String(e)}`);
     }
     process.exitCode = 1;
   }

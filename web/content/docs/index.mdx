@@ -1,0 +1,29 @@
+---
+title: Introduction
+description: What doc0 is, why it exists, and who it's for.
+---
+
+**doc0** is terminal-native documentation. You browse docs in a Terminal UI. Your AI assistant runs the exact same CLI via MCP. Both hit the same local cache.
+
+There is no doc0-hosted backend. Docs live in:
+
+- **`~/.d0/docs-store`** — pages doc0 has ingested, cached locally
+- **`~/.d0/bundles`** — Markdown bundles you've installed
+- **`~/.d0/community-registry.json`** — a daily-refreshed snapshot of the community registry
+- **`~/.d0rc`** — your per-user config (registry URL, keybindings, etc.)
+
+## Why
+
+Reading docs should not require a browser. Every time you switch context from your editor to Chrome to find `stripe.webhooks.constructEvent`, you break flow. doc0 is the fix.
+
+And your agent is worse off than you are: it reads docs by round-tripping through a search engine, then fetching HTML, then stripping chrome. doc0 gives it the same pre-scoped, cached Markdown you see.
+
+## Three commands to know
+
+```bash
+doc0 ls                       # what's installed + what the community registry offers
+doc0 stripe                   # open the TUI on Stripe's docs (resolves from the registry)
+doc0 mcp                      # stdio MCP server on this machine, for your agent
+```
+
+That's most of it. See [Getting started](/docs/getting-started) to install.

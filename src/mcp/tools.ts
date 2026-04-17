@@ -49,7 +49,7 @@ const lazyStoreWriteChain = new Map<string, Promise<void>>();
 function scheduleLazyStoreWrite(storeId: string, task: () => Promise<void>): void {
   const prev = lazyStoreWriteChain.get(storeId) ?? Promise.resolve();
   const next = prev.then(task).catch((err) => {
-    console.error(`[d0 mcp] lazy doc store write failed (${storeId}):`, err);
+    console.error(`[doc0 mcp] lazy doc store write failed (${storeId}):`, err);
   });
   lazyStoreWriteChain.set(storeId, next);
 }
@@ -169,7 +169,7 @@ async function ensureBundleStoreId(entry: DocsRegistryEntry): Promise<string | n
     const manifest = await ingestBundleToDocStore(ref.root);
     return manifest.storeId;
   } catch (err) {
-    console.error(`[d0 mcp] bundle ingest failed for ${entry.source}:`, err);
+    console.error(`[doc0 mcp] bundle ingest failed for ${entry.source}:`, err);
     return null;
   }
 }
@@ -192,7 +192,7 @@ async function getLlmsFullChunks(entry: DocsRegistryEntry): Promise<LlmsFullChun
     llmsFullCache.set(entry.id, { fetchedAt: now, chunks: full.chunks, markdown: full.markdown });
     return full.chunks;
   } catch (err) {
-    console.error(`[d0 mcp] llms-full.txt fetch failed for ${entry.source}:`, err);
+    console.error(`[doc0 mcp] llms-full.txt fetch failed for ${entry.source}:`, err);
     llmsFullCache.set(entry.id, { fetchedAt: now, chunks: null, markdown: null });
     return null;
   }

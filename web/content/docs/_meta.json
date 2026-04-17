@@ -1,0 +1,14 @@
+{
+  "title": "doc0",
+  "pages": [
+    "index",
+    "getting-started",
+    "--- Using doc0",
+    "cli",
+    "mcp",
+    "registry",
+    "--- Going further",
+    "bundles",
+    "self-hosting"
+  ]
+}

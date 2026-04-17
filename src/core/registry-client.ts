@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { docsRegistryPath, listInstalled } from "./storage.js";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { communityRegistryCachePath, d0Home, docsRegistryPath, listInstalled } from "./storage.js";
+import { DEFAULT_COMMUNITY_REGISTRY_URL, loadConfig, type D0Config } from "./config.js";
 
 export class RegistryError extends Error {
   constructor(message: string) {
@@ -23,7 +26,13 @@ export interface DocsRegistryEntry {
   sourceType: DocsSourceType;
   source: string;
   description?: string;
-  sourceScope?: "user-local" | "installed-local" | "builtin";
+  sourceScope?: "user-local" | "installed-local" | "community" | "builtin";
+}
+
+export interface CommunityRegistryCache {
+  url: string;
+  fetchedAt: string;
+  entries: DocsRegistryEntry[];
 }
 
 export interface DocsResolveResult {
@@ -37,109 +46,41 @@ interface UserDocsRegistryFile {
 }
 
 /**
- * Built-in registry. Static, ships with the CLI.
- *
- * Prefer sources that expose `/llms.txt` or `/llms-full.txt` — those are the fast path for MCP.
- * Users add more via `d0 add <id> <url>` (writes `~/.d0/docs-registry.json`).
+ * Seed registry shipped inside the npm package as `registry.json`. Loaded from disk on demand
+ * (memoized per process). Sources at ship time are a snapshot of the community registry; the
+ * community URL overrides them live, but this file is what makes doc0 work offline / on first
+ * run before the community fetch completes.
  */
-const BUILTIN_DOCS_REGISTRY: DocsRegistryEntry[] = [
-  {
-    id: "stripe",
-    aliases: ["stripe api", "stripe docs"],
-    sourceType: "url",
-    source: "https://docs.stripe.com",
-    description: "Stripe API documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "node",
-    aliases: ["nodejs", "node.js", "node docs"],
-    sourceType: "url",
-    source: "https://nodejs.org/docs/latest/api/",
-    description: "Node.js API reference",
-    sourceScope: "builtin",
-  },
-  {
-    id: "anthropic",
-    aliases: ["claude", "anthropic api", "claude docs"],
-    sourceType: "url",
-    source: "https://docs.anthropic.com",
-    description: "Anthropic / Claude API documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "vercel",
-    aliases: ["vercel docs"],
-    sourceType: "url",
-    source: "https://vercel.com/docs",
-    description: "Vercel platform documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "nextjs",
-    aliases: ["next", "next.js", "next js"],
-    sourceType: "url",
-    source: "https://nextjs.org/docs",
-    description: "Next.js framework documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "prisma",
-    aliases: ["prisma orm", "prisma docs"],
-    sourceType: "url",
-    source: "https://www.prisma.io/docs",
-    description: "Prisma ORM documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "supabase",
-    aliases: ["supabase docs"],
-    sourceType: "url",
-    source: "https://supabase.com/docs",
-    description: "Supabase platform documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "cloudflare",
-    aliases: ["cloudflare docs", "workers"],
-    sourceType: "url",
-    source: "https://developers.cloudflare.com",
-    description: "Cloudflare developer documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "bun",
-    aliases: ["bun.sh", "bun docs"],
-    sourceType: "url",
-    source: "https://bun.sh/docs",
-    description: "Bun runtime documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "astro",
-    aliases: ["astro docs"],
-    sourceType: "url",
-    source: "https://docs.astro.build",
-    description: "Astro framework documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "svelte",
-    aliases: ["svelte docs", "sveltekit"],
-    sourceType: "url",
-    source: "https://svelte.dev/docs",
-    description: "Svelte / SvelteKit documentation",
-    sourceScope: "builtin",
-  },
-  {
-    id: "shadcn",
-    aliases: ["shadcn ui", "shadcn/ui"],
-    sourceType: "url",
-    source: "https://ui.shadcn.com/docs",
-    description: "shadcn/ui component documentation",
-    sourceScope: "builtin",
-  },
-];
+let seedRegistryCache: DocsRegistryEntry[] | null = null;
+
+function packageRegistryJsonPath(): string {
+  // This file ships to consumers at `<pkg>/dist/core/registry-client.js`, so registry.json is
+  // two levels up. In dev (tsx, running from src/) registry.json is also two levels up.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, "..", "..", "registry.json"),
+    path.resolve(here, "..", "registry.json"),
+    path.resolve(process.cwd(), "registry.json"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return candidates[0]!;
+}
+
+async function loadSeedRegistry(): Promise<DocsRegistryEntry[]> {
+  if (seedRegistryCache) return seedRegistryCache;
+  try {
+    const raw = await readFile(packageRegistryJsonPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    const entries = parseCommunityRegistryPayload(parsed).map((e) => ({ ...e, sourceScope: "builtin" as const }));
+    seedRegistryCache = entries;
+    return entries;
+  } catch {
+    seedRegistryCache = [];
+    return [];
+  }
+}
 
 function normalizeRegistryText(input: string): string {
   return input.trim().toLowerCase();
@@ -172,6 +113,137 @@ function normalizeRegistryEntry(raw: DocsRegistryEntry): DocsRegistryEntry | nul
     description: raw.description?.trim() || undefined,
     sourceScope: raw.sourceScope,
   };
+}
+
+/** 24 hours. Override with D0_COMMUNITY_REGISTRY_TTL_MS. */
+function communityRegistryTtlMs(): number {
+  const raw = process.env.D0_COMMUNITY_REGISTRY_TTL_MS?.trim();
+  if (!raw) return 24 * 60 * 60 * 1000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 24 * 60 * 60 * 1000;
+}
+
+function parseCommunityRegistryPayload(raw: unknown): DocsRegistryEntry[] {
+  const entries: unknown = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { entries?: unknown }).entries)
+      ? (raw as { entries: unknown[] }).entries
+      : [];
+  if (!Array.isArray(entries)) return [];
+  const out: DocsRegistryEntry[] = [];
+  for (const e of entries) {
+    if (!e || typeof e !== "object") continue;
+    const rec = e as Record<string, unknown>;
+    const entry: DocsRegistryEntry = {
+      id: String(rec.id ?? ""),
+      aliases: Array.isArray(rec.aliases) ? rec.aliases.filter((a): a is string => typeof a === "string") : [],
+      sourceType: rec.sourceType === "bundle" ? "bundle" : "url",
+      source: String(rec.source ?? ""),
+      description: typeof rec.description === "string" ? rec.description : undefined,
+      sourceScope: "community",
+    };
+    const normalized = normalizeRegistryEntry(entry);
+    if (normalized) out.push({ ...normalized, sourceScope: "community" });
+  }
+  return out;
+}
+
+async function readCommunityRegistryCache(): Promise<CommunityRegistryCache | null> {
+  const p = communityRegistryCachePath();
+  if (!existsSync(p)) return null;
+  try {
+    const raw = await readFile(p, "utf8");
+    const parsed = JSON.parse(raw) as CommunityRegistryCache;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.entries)) return null;
+    return {
+      url: typeof parsed.url === "string" ? parsed.url : "",
+      fetchedAt: typeof parsed.fetchedAt === "string" ? parsed.fetchedAt : "",
+      entries: parseCommunityRegistryPayload({ entries: parsed.entries }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeCommunityRegistryCache(cache: CommunityRegistryCache): Promise<void> {
+  await mkdir(path.dirname(communityRegistryCachePath()), { recursive: true }).catch(() => undefined);
+  await mkdir(d0Home(), { recursive: true }).catch(() => undefined);
+  await writeFile(communityRegistryCachePath(), JSON.stringify(cache, null, 2) + "\n", "utf8");
+}
+
+async function fetchCommunityRegistryPayload(url: string): Promise<DocsRegistryEntry[]> {
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "d0-cli/0.1",
+      accept: "application/json, text/plain;q=0.9, */*;q=0.5",
+    },
+  });
+  if (!res.ok) throw new RegistryError(`community registry fetch failed: ${res.status} ${res.statusText}`);
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new RegistryError(`community registry did not return valid JSON (${url})`);
+  }
+  return parseCommunityRegistryPayload(parsed);
+}
+
+/** One warning per process per URL — avoids spamming every MCP tool call or CLI invocation. */
+const warnedCommunityFetchFailures = new Set<string>();
+
+function warnCommunityFetchFailureOnce(url: string, err: unknown): void {
+  if (warnedCommunityFetchFailures.has(url)) return;
+  warnedCommunityFetchFailures.add(url);
+  // MCP mode already routes stderr into the host's log pane; keep silent there unless the user
+  // explicitly asked to see it via D0_DEBUG=1.
+  const isMcp = process.env.D0_MCP_INSTALLED_ONLY || process.argv.some((a) => a === "mcp");
+  const debug = process.env.D0_DEBUG === "1" || process.env.D0_DEBUG === "true";
+  if (isMcp && !debug) return;
+  const msg = err instanceof Error ? err.message : String(err);
+  const hint =
+    url === DEFAULT_COMMUNITY_REGISTRY_URL
+      ? " (default community registry; disable with `D0_REGISTRY_URL=off` or `registryUrl: false` in ~/.d0rc)"
+      : "";
+  console.error(`[d0] community registry fetch failed${hint}: ${msg}`);
+}
+
+/**
+ * Return community registry entries. Uses cache when fresh (< TTL). When stale, attempts a
+ * fetch; on network failure, falls back to stale cache so offline usage keeps working. Returns
+ * [] when no `registryUrl` is configured (explicitly disabled) or when there is no cache and
+ * the fetch fails.
+ */
+async function getCommunityRegistryEntries(config: D0Config): Promise<DocsRegistryEntry[]> {
+  const url = config.registryUrl;
+  if (!url) return [];
+  const ttl = communityRegistryTtlMs();
+  const cache = await readCommunityRegistryCache();
+  const cacheFresh =
+    cache && cache.url === url && cache.fetchedAt && Date.now() - Date.parse(cache.fetchedAt) <= ttl;
+  if (cacheFresh && cache) return cache.entries;
+
+  try {
+    const entries = await fetchCommunityRegistryPayload(url);
+    await writeCommunityRegistryCache({ url, fetchedAt: new Date().toISOString(), entries });
+    return entries;
+  } catch (err) {
+    if (cache && cache.url === url) return cache.entries;
+    warnCommunityFetchFailureOnce(url, err);
+    return [];
+  }
+}
+
+/** Force a refresh regardless of cache age. Throws on network/parse errors so the sync command can report them. */
+export async function syncCommunityRegistry(config: D0Config): Promise<CommunityRegistryCache> {
+  const url = config.registryUrl;
+  if (!url) {
+    throw new RegistryError("no registryUrl configured in ~/.d0rc (or D0_REGISTRY_URL)");
+  }
+  const entries = await fetchCommunityRegistryPayload(url);
+  const cache: CommunityRegistryCache = { url, fetchedAt: new Date().toISOString(), entries };
+  await writeCommunityRegistryCache(cache);
+  return cache;
 }
 
 async function readUserRegistryEntries(): Promise<DocsRegistryEntry[]> {
@@ -213,6 +285,8 @@ function scoreScope(scope: DocsRegistryEntry["sourceScope"]): number {
       return 500;
     case "installed-local":
       return 400;
+    case "community":
+      return 200;
     case "builtin":
       return 100;
     default:
@@ -251,11 +325,17 @@ export interface ListDocsOptions {
 }
 
 export async function listDocsRegistryEntries(opts: ListDocsOptions = {}): Promise<DocsRegistryEntry[]> {
-  const [bundles, userEntries] = await Promise.all([installedBundleEntries(), readUserRegistryEntries()]);
-  const pool = opts.installedOnly
-    ? [...userEntries, ...bundles]
-    : [...userEntries, ...bundles, ...BUILTIN_DOCS_REGISTRY];
-  return mergeByPrecedence(pool);
+  const [bundles, userEntries, config, seedEntries] = await Promise.all([
+    installedBundleEntries(),
+    readUserRegistryEntries(),
+    loadConfig(),
+    loadSeedRegistry(),
+  ]);
+  if (opts.installedOnly) {
+    return mergeByPrecedence([...userEntries, ...bundles]);
+  }
+  const communityEntries = await getCommunityRegistryEntries(config);
+  return mergeByPrecedence([...userEntries, ...bundles, ...communityEntries, ...seedEntries]);
 }
 
 function isMcpInstalledOnly(): boolean {
@@ -326,19 +406,13 @@ export async function resolveDocsEntryWithFallback(query: string): Promise<DocsR
 }
 
 /**
- * Placeholder — d0 does not run a bundle download service. Use `d0 add --local <path>` for now.
+ * Placeholder — doc0 does not run a bundle download service. Use `doc0 add --local <path>` for now.
  */
 export async function fetchBundleMeta(
   _name: string,
   _version?: string,
 ): Promise<RegistryBundleMeta> {
   throw new RegistryError(
-    "Registry downloads are not available. Use: d0 add --local <path-to-bundle-dir>",
-  );
-}
-
-export async function publishBundle(_tarballPath: string, _token?: string): Promise<void> {
-  throw new RegistryError(
-    "d0 publish is not wired to a live registry. Use d0 build to produce a .d0.tgz artifact.",
+    "Registry downloads are not available. Use: doc0 add --local <path-to-bundle-dir>",
   );
 }

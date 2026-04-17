@@ -10,7 +10,7 @@ export async function cmdIngestUrl(
   _config: D0Config,
 ): Promise<void> {
   if (!isUrlLike(url)) {
-    console.error(`d0 ingest url: invalid URL: ${url}`);
+    console.error(`doc0 ingest url: invalid URL: ${url}`);
     process.exitCode = 1;
     return;
   }
@@ -28,7 +28,7 @@ export async function cmdIngestUrl(
     console.log(`Pages: ${Object.keys(manifest.pages).length}`);
     console.log(`Manifest: ~/.d0/docs-store/${manifest.storeId}/manifest.json`);
   } catch (e) {
-    console.error(`d0 ingest url: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`doc0 ingest url: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
   }
 }
@@ -40,7 +40,7 @@ export async function cmdIngestBundle(
 ): Promise<void> {
   const ref = await findInstalledBundle(bundle);
   if (!ref) {
-    console.error(`d0 ingest bundle: bundle not installed: ${bundle}`);
+    console.error(`doc0 ingest bundle: bundle not installed: ${bundle}`);
     process.exitCode = 1;
     return;
   }
@@ -54,7 +54,7 @@ export async function cmdIngestBundle(
     console.log(`Pages: ${Object.keys(manifest.pages).length}`);
     console.log(`Manifest: ~/.d0/docs-store/${manifest.storeId}/manifest.json`);
   } catch (e) {
-    console.error(`d0 ingest bundle: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`doc0 ingest bundle: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
   }
 }

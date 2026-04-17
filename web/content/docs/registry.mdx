@@ -1,0 +1,52 @@
+---
+title: Community registry
+description: One JSON file on GitHub, curated by PR.
+---
+
+The community registry is a single JSON file in [`doc0team/d0-registry`](https://github.com/doc0team/d0-registry). doc0 fetches it once a day, caches it at `~/.d0/community-registry.json`, and merges it into your local registry.
+
+## Resolution order
+
+When you run `doc0 stripe` (or `find_docs({ query: "stripe" })` from an agent), doc0 resolves entries in this order — first win takes precedence:
+
+1. **User overrides** — `~/.d0/docs-registry.json`
+2. **Installed bundles** — anything added via `doc0 add`
+3. **Community registry** — the daily-refreshed cache (`~/.d0/community-registry.json`)
+4. **Shipped seed** — `registry.json` bundled inside the npm package (offline fallback)
+
+## Opt out / fork
+
+```yaml
+# ~/.d0rc
+
+# point at your own fork
+registryUrl: https://raw.githubusercontent.com/myorg/d0-registry/main/registry.json
+
+# disable entirely
+registryUrl: false
+```
+
+Env vars win over `~/.d0rc`:
+
+```bash
+D0_REGISTRY_URL=off doc0 ls          # skip the community registry entirely
+D0_REGISTRY_URL=https://… doc0 stripe # use a one-off registry URL
+```
+
+Fetch failures fall back to the cached copy, then to the shipped seed, so **doc0 keeps working offline**.
+
+## Contribute an entry
+
+```json
+{
+  "id": "tanstack-query",
+  "aliases": ["tanstack query", "react query"],
+  "sourceType": "url",
+  "source": "https://tanstack.com/query/latest/docs",
+  "description": "TanStack Query documentation"
+}
+```
+
+Open a PR. A GitHub Action validates JSON shape (unique lowercase id, https URL, etc.). A human skims the URL. Merge. Every user has it within 24 hours.
+
+Full rules: [`CONTRIBUTING.md`](https://github.com/doc0team/d0-registry/blob/main/CONTRIBUTING.md).

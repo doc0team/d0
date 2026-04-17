@@ -13,7 +13,7 @@ export async function cmdSearch(
 ): Promise<void> {
   const query = queryParts.join(" ").trim();
   if (!query) {
-    console.error("Usage: d0 <pkg> search <query>");
+    console.error("Usage: doc0 <pkg> search <query>");
     process.exitCode = 1;
     return;
   }
@@ -49,13 +49,13 @@ export async function cmdSearchUrl(
   config: D0Config,
 ): Promise<void> {
   if (!isUrlLike(target)) {
-    console.error(`d0 search: invalid URL target: ${target}`);
+    console.error(`doc0 search: invalid URL target: ${target}`);
     process.exitCode = 1;
     return;
   }
   const query = queryParts.join(" ").trim();
   if (!query) {
-    console.error("Usage: d0 search <url> <query>");
+    console.error("Usage: doc0 search <url> <query>");
     process.exitCode = 1;
     return;
   }
@@ -75,7 +75,7 @@ export async function cmdSearchUrl(
       console.log(`${h.url}\n  ${h.title}\n  ${h.snippet}\n`);
     }
   } catch (e) {
-    console.error(`d0 search: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`doc0 search: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 1;
   }
 }

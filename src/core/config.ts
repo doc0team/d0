@@ -18,11 +18,32 @@ export interface Keybindings {
 export type Theme = "dark" | "light";
 export type OutputFormat = "auto" | "json" | "raw" | "rich";
 
+/**
+ * Community registry: a single JSON file on GitHub (array or `{ entries: [...] }`) that d0
+ * fetches once a day and merges above the built-ins. PRs to the repo are the curation UI.
+ * Override with `registryUrl` in ~/.d0rc or `D0_REGISTRY_URL`. Set either to `false` / `""`
+ * / `"off"` to disable entirely.
+ */
+export const DEFAULT_COMMUNITY_REGISTRY_URL =
+  "https://raw.githubusercontent.com/doc0team/d0-registry/main/registry.json";
+
+const DISABLE_TOKENS = new Set(["", "false", "off", "disabled", "null", "none", "0"]);
+
+function isDisableToken(raw: string): boolean {
+  return DISABLE_TOKENS.has(raw.trim().toLowerCase());
+}
+
 export interface D0Config {
   theme: Theme;
   outputFormat: OutputFormat;
   keybindings: Keybindings;
   defaultBundles: string[];
+  /**
+   * Optional HTTPS URL to a community `registry.json` (array or `{ entries: [...] }`).
+   * When set, doc0 fetches it once a day and merges entries below user/installed but above built-ins.
+   * Unset = no community registry is ever contacted.
+   */
+  registryUrl?: string;
 }
 
 const defaultKeybindings: Keybindings = {
@@ -55,10 +76,19 @@ export function configPath(): string {
   return path.join(os.homedir(), ".d0rc");
 }
 
+function emptyConfig(): D0Config {
+  const registryUrl = resolveRegistryUrl(undefined);
+  return {
+    ...defaultConfig,
+    keybindings: { ...defaultKeybindings },
+    ...(registryUrl ? { registryUrl } : {}),
+  };
+}
+
 export async function loadConfig(): Promise<D0Config> {
   const p = configPath();
   if (!existsSync(p)) {
-    return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
+    return emptyConfig();
   }
   const raw = await readFile(p, "utf8");
   let data: unknown;
@@ -73,10 +103,10 @@ export async function loadConfig(): Promise<D0Config> {
       }
     }
   } catch {
-    return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
+    return emptyConfig();
   }
   if (!isRecord(data)) {
-    return { ...defaultConfig, keybindings: { ...defaultKeybindings } };
+    return emptyConfig();
   }
 
   const theme = data.theme === "light" ? "light" : "dark";
@@ -106,10 +136,36 @@ export async function loadConfig(): Promise<D0Config> {
     ? data.defaultBundles.filter((x): x is string => typeof x === "string")
     : [];
 
+  const registryUrl = resolveRegistryUrl(data.registryUrl);
+
   return {
     theme,
     outputFormat,
     keybindings,
     defaultBundles,
+    ...(registryUrl ? { registryUrl } : {}),
   };
+}
+
+/**
+ * Resolve the effective community registry URL, with precedence:
+ *   1. `D0_REGISTRY_URL` env var (including disable tokens → no URL)
+ *   2. `registryUrl` in ~/.d0rc (string URL, or `false` / `null` / disable token → no URL)
+ *   3. `DEFAULT_COMMUNITY_REGISTRY_URL`
+ * Returns `undefined` when explicitly disabled, otherwise a validated `https?://` URL.
+ */
+function resolveRegistryUrl(configValue: unknown): string | undefined {
+  const envRaw = process.env.D0_REGISTRY_URL;
+  if (envRaw !== undefined) {
+    const env = envRaw.trim();
+    if (isDisableToken(env)) return undefined;
+    if (/^https?:\/\//i.test(env)) return env;
+  }
+  if (configValue === false || configValue === null) return undefined;
+  if (typeof configValue === "string") {
+    const s = configValue.trim();
+    if (isDisableToken(s)) return undefined;
+    if (/^https?:\/\//i.test(s)) return s;
+  }
+  return DEFAULT_COMMUNITY_REGISTRY_URL;
 }

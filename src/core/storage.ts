@@ -17,6 +17,7 @@ const BUNDLES = "bundles";
 const BIN = "bin";
 const INDEX = "index.json";
 const DOCS_REGISTRY = "docs-registry.json";
+const COMMUNITY_REGISTRY_CACHE = "community-registry.json";
 const CACHE_DIR = "cache";
 const DOCS_STORE = "docs-store";
 
@@ -38,6 +39,10 @@ export function indexPath(): string {
 
 export function docsRegistryPath(): string {
   return path.join(d0Home(), DOCS_REGISTRY);
+}
+
+export function communityRegistryCachePath(): string {
+  return path.join(d0Home(), COMMUNITY_REGISTRY_CACHE);
 }
 
 export function cacheDir(): string {

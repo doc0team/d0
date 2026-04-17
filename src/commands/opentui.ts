@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export async function cmdBrowseOpenTui(): Promise<void> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
-    console.error("d0 browse-opentui: interactive mode requires a TTY.");
+    console.error("doc0 browse-opentui: interactive mode requires a TTY.");
     process.exitCode = 1;
     return;
   }
@@ -18,7 +18,7 @@ export async function cmdBrowseOpenTui(): Promise<void> {
     });
 
     child.on("error", () => {
-      console.error("d0 browse-opentui: failed to launch Bun. Install Bun to use OpenTUI mode.");
+      console.error("doc0 browse-opentui: failed to launch Bun. Install Bun to use OpenTUI mode.");
       process.exitCode = 1;
       done();
     });

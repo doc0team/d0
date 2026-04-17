@@ -53,7 +53,7 @@ async function main(): Promise<void> {
     border: true,
     borderStyle: "rounded",
     borderColor: "#6f6f82",
-    title: " d0 / OpenTUI experimental ",
+    title: " doc0 / OpenTUI experimental ",
     titleAlignment: "center",
     padding: 1,
   });
