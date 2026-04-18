@@ -1,0 +1,130 @@
+---
+title: Configuration
+description: Every knob in ~/.d0rc and every D0_* environment variable, in one place.
+---
+
+doc0 has exactly two places configuration lives:
+
+1. **`~/.d0rc`** — per-user file on disk (YAML or JSON).
+2. **`D0_*` environment variables** — per-invocation overrides.
+
+Env vars always win. Everything else falls back to documented defaults. There is no project-level `.d0rc`.
+
+## Managing `~/.d0rc`
+
+```bash
+doc0 config path                 # print the absolute path, tell you if it exists
+doc0 config show                 # effective config (file + env + defaults) as text
+doc0 config show --json          # same, as JSON — for agents and scripts
+doc0 config edit                 # open in $VISUAL/$EDITOR (fallback: notepad / vi)
+doc0 config edit --editor "code --wait"
+doc0 config edit --print         # create the file if missing; print the path; skip editor
+```
+
+On first run, `edit` writes a commented YAML template with every option set to its default — so you never have to look up the shape from memory.
+
+## `~/.d0rc` schema
+
+The file is YAML or JSON; `loadConfig` tries JSON first, then falls back to YAML. **Unknown keys are ignored**, so forward-compat is safe.
+
+```yaml
+# ~/.d0rc
+
+theme: dark                # "dark" | "light"
+outputFormat: auto         # "auto" | "json" | "raw" | "rich"
+registryUrl: https://raw.githubusercontent.com/doc0team/d0-registry/main/registry.json
+defaultBundles: []         # bundles to preload into the TUI jump menu
+
+keybindings:
+  scroll_down: j
+  scroll_up:   k
+  search:      /
+  back:        h
+  forward:     l
+  quit:        q
+  top:         g
+  bottom:      G
+```
+
+### Fields
+
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `theme` | `"dark" \| "light"` | `"dark"` | TUI color palette. Only `dark` and `light` are valid; anything else falls back to `dark`. |
+| `outputFormat` | `"auto" \| "json" \| "raw" \| "rich"` | `"auto"` | Default for `read` / `search` output when no `--json` / `--raw` flag is passed. `auto` picks based on whether stdout is a TTY. |
+| `registryUrl` | `string \| false \| null` | *community default* | HTTPS URL to a `registry.json`. Set to `false`, `null`, `""`, `"off"`, `"disabled"`, `"none"`, or `"0"` to disable the community registry entirely. |
+| `defaultBundles` | `string[]` | `[]` | Bundle names to pre-load as jump targets in the TUI. |
+| `keybindings` | `object` | *see template* | Override any individual key. Unknown keybinding keys are ignored; unset ones use the default. |
+
+### Disabling the community registry
+
+Any of these opt out:
+
+```yaml
+registryUrl: false
+```
+```yaml
+registryUrl: "off"
+```
+```yaml
+registryUrl: null
+```
+
+When disabled, doc0 falls back to: user overrides (`~/.d0/docs-registry.json`) → installed bundles → shipped seed. Fully offline, no network fetches.
+
+## Environment variables
+
+Everything below is optional. Env vars take precedence over `~/.d0rc`, so they're ideal for CI, one-off invocations, and MCP client configs.
+
+### Registry
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `D0_REGISTRY_URL` | *community default* | Override the registry URL for this process. Accepts the same disable tokens as the config field (`off`, `false`, `disabled`, empty string, etc.). |
+| `D0_COMMUNITY_REGISTRY_TTL_MS` | `86400000` (24h) | How long to trust the cached `community-registry.json` before re-fetching. Set to `0` to force a fetch on every invocation. |
+
+### MCP server
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `D0_MCP_INSTALLED_ONLY` | unset | Truthy value hides community + seed entries from MCP clients. Same effect as `doc0 mcp --installed-only`. Installed bundles and user-added registry entries stay visible. |
+| `D0_MCP_SEARCH_MAX_FETCH` | *(internal cap)* | Max pages a single live `grep_docs` call may fetch when a URL source has no local cache yet. Raise for exhaustive searches; lower to keep agents snappy on cold caches. |
+| `D0_DEBUG` | unset | Set to `1` or `true` to surface fetch/discovery errors in MCP mode. Off by default because MCP stderr bleeds into some clients' logs. |
+
+### Ingestion + URL docs
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `D0_INGEST_MAX_PAGES` | `50000` | Safety cap for `doc0 ingest url` after discovery dedupe. `0` means "ingest every discovered URL, no cap" — use carefully. |
+| `D0_DOCS_LOCALE` | *(auto)* | Large sitemaps often list every translated path. When the discovered URL set is large enough to need collapsing, doc0 picks one locale automatically. Set `D0_DOCS_LOCALE=en` (or `pt-br`, etc.) to force a specific locale, or `D0_DOCS_LOCALE=off` / `*` to keep every language. |
+
+### Editor (used only by `doc0 config edit`)
+
+| Variable | Notes |
+| --- | --- |
+| `VISUAL` | Preferred editor command. Supports arguments (`VISUAL="code --wait"`). |
+| `EDITOR` | Fallback when `VISUAL` is unset. |
+
+If neither is set, `doc0 config edit` uses `notepad.exe` on Windows and `vi` everywhere else.
+
+## Resolution order
+
+For the community registry URL specifically, precedence is:
+
+1. `D0_REGISTRY_URL` (including disable tokens)
+2. `registryUrl` in `~/.d0rc`
+3. Built-in default (`https://raw.githubusercontent.com/doc0team/d0-registry/main/registry.json`)
+
+For registry *entries* (not the URL), resolution is first-win across four sources — see [Community registry → Resolution order](/docs/registry).
+
+## Paths doc0 touches
+
+All under `~/.d0/` unless noted:
+
+| Path | Purpose |
+| --- | --- |
+| `~/.d0rc` | This config file. |
+| `~/.d0/docs-registry.json` | Your user-added registry entries (highest precedence). |
+| `~/.d0/community-registry.json` | Daily-refreshed cache of the community registry JSON. |
+| `~/.d0/bundles/` | Installed bundles (`@scope__name/version/`). |
+| `~/.d0/docs-store/` | Pages doc0 has ingested, keyed by source URL. Populated lazily by `read` / `search` / explicit `ingest`. |

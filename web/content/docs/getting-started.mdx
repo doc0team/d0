@@ -51,3 +51,14 @@ doc0 mcp                      # or run the stdio MCP server manually
 ```
 
 See [MCP](/docs/mcp) for the tool schema and installed-only mode.
+
+## Tweak anything
+
+Every configurable knob — theme, output format, registry URL, keybindings, default bundles — lives in `~/.d0rc`:
+
+```bash
+doc0 config edit      # opens $VISUAL/$EDITOR; creates a commented template on first run
+doc0 config show      # print the effective config (file + env vars + defaults)
+```
+
+Full schema and env-var reference: [Configuration](/docs/configuration).

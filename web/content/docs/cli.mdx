@@ -49,9 +49,9 @@ Under the hood this runs `npm install -g doc0@latest`, so it respects your npm p
 ## Authoring bundles
 
 ```bash
-doc0 init <dir> --name @acme/docs   # scaffold a new bundle
-doc0 build [dir]                    # validate + compile d0.json
-doc0 import <src> --name @acme/...  # convert a Markdown dir/file into a bundle
+doc0 init <dir> --name @acme/docs                           # scaffold a new bundle
+doc0 build [dir]                                            # validate + compile d0.json
+doc0 import <src> --name @acme/... [--out ./imported-bundle] # convert a Markdown dir/file into a bundle
 ```
 
 ## Ingestion (optional)
@@ -62,6 +62,26 @@ doc0 import <src> --name @acme/...  # convert a Markdown dir/file into a bundle
 doc0 ingest url <url> [--external] [--max-pages 50000]
 doc0 ingest bundle <installed-bundle>
 ```
+
+## Configuration
+
+Your per-user config lives at `~/.d0rc` (YAML or JSON). `doc0 config` gives you
+four things: the path, the *effective* resolved config (file + env merged), an
+editor launch, and a safe first-run template:
+
+```bash
+doc0 config path                 # print ~/.d0rc and whether it exists
+doc0 config show                 # effective config (file + env + defaults)
+doc0 config show --json          # same, as JSON
+doc0 config edit                 # open in $VISUAL / $EDITOR (fallback: notepad / vi)
+doc0 config edit --editor "code --wait"
+doc0 config edit --print         # create the file if missing; print the path (no editor)
+```
+
+On first run, `edit` writes a commented YAML template covering every option
+(theme, `outputFormat`, `registryUrl`, `defaultBundles`, `keybindings`). Env
+vars like `D0_REGISTRY_URL` always win over the file — see [the registry
+docs](/docs/registry) for precedence.
 
 ## Registry + health
 
@@ -82,11 +102,12 @@ doc0 mcp install [--project] [--dry-run] [--yes]   # merge into ~/.cursor/mcp.js
 
 ## Environment
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `D0_REGISTRY_URL` | community default | Override the registry URL. Disable with `off` / `false`. |
-| `D0_COMMUNITY_REGISTRY_TTL_MS` | 86400000 | How long to trust the cached registry before re-fetching. |
-| `D0_MCP_INSTALLED_ONLY` | unset | Same as `doc0 mcp --installed-only`. |
-| `D0_MCP_SEARCH_MAX_FETCH` | (bounded) | Max pages fetched during a live `grep_docs` on URL docs with no cache. |
-| `D0_INGEST_MAX_PAGES` | 50000 | Safety cap for `doc0 ingest url` / merged discovery output. |
-| `D0_DEBUG` | unset | Set to `1` to surface fetch errors in MCP mode. |
+Every env var is documented on the [Configuration](/docs/configuration) page, alongside the `~/.d0rc` schema.
+
+## Experimental
+
+```bash
+doc0 browse-opentui              # alternate TUI powered by OpenTUI (requires Bun)
+```
+
+**Heads up — experimental.** `browse-opentui` is a second TUI implementation we're prototyping against [OpenTUI](https://github.com/sst/opentui). It's *not* feature-complete: no full-text search, no MCP cache integration, no bundle-vs-URL unified routing, no keybinding config, no save-state. Use the default `doc0 browse` for anything real; `browse-opentui` exists for anyone curious about the alternate renderer.
