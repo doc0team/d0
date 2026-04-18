@@ -7,8 +7,10 @@ Terminal-native documentation: humans browse in a TUI; agents run the same CLI w
 ## Install
 
 ```bash
-npm install -g doc0
+npm install -g doczero
 ```
+
+The package name on npm is `doczero` (the shorter `doc0` was blocked by npm's similarity filter). It installs the same two binaries — `doc0` and `d0` — so every command in these docs works as written.
 
 Interactive browse (`doc0 @scope/pkg`, `doc0 browse …`) uses the **Ink** + React TUI only — **Node 22+** and `npm install` are enough; there is no Rust or native binary.
 

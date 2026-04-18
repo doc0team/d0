@@ -75,7 +75,7 @@ export function resolveMcpLaunchConfig(): McpLaunchConfig {
   const srcIndex = path.join(root, "src", "index.ts");
   if (existsSync(srcIndex)) return { command: process.execPath, args: [srcIndex, "mcp"] };
   throw new Error(
-    "Could not find doc0 (or d0) on PATH or dist/index.js. Install globally: npm install -g doc0, or run npm run build from the doc0 repo.",
+    "Could not find doc0 (or d0) on PATH or dist/index.js. Install globally: npm install -g doczero, or run npm run build from the doc0 repo.",
   );
 }
 

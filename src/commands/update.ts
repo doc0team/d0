@@ -16,7 +16,7 @@ export type UpdateOpts = {
  * Flow:
  *   1. Fetch `latest` dist-tag from the npm registry.
  *   2. Compare to the currently-installed version baked into package.json.
- *   3. If newer, run `npm install -g doc0@latest` unless `--check` is set.
+ *   3. If newer, run `npm install -g doczero@latest` unless `--check` is set.
  *
  * We deliberately shell out to `npm` rather than fetching + extracting ourselves:
  * the user's npm install already knows their prefix, permissions, registry, and

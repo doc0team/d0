@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 
-const INSTALL_CMD = "npm i -g doc0";
+const INSTALL_CMD = "npm i -g doczero";
 
 export function InstallHeroBar() {
   const [copied, setCopied] = useState(false);
@@ -22,7 +22,7 @@ export function InstallHeroBar() {
       <div className="install-hero-command" aria-label={`Shell command: ${INSTALL_CMD}`}>
         <span className="install-hero-prompt">$</span>{" "}
         <span className="install-hero-npm">npm</span>
-        <span className="install-hero-rest"> i -g doc0</span>
+        <span className="install-hero-rest"> i -g doczero</span>
       </div>
       <button
         type="button"

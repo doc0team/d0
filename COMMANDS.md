@@ -93,7 +93,7 @@ doc0 init --name @acme/my-docs .
 doc0 import <path-to-md-dir> --name @acme/imported --out ./imported-bundle
 doc0 mcp
 doc0 update --check                 # see if a newer doc0 is on npm
-doc0 update                         # self-update (runs npm install -g doc0@latest)
+doc0 update                         # self-update (runs npm install -g doczero@latest)
 ```
 
 ### `doc0 mcp` (stdio MCP server)
