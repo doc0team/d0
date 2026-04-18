@@ -72,7 +72,7 @@ doc0 ls --json
 | `doc0 doctor` | Verify every registry entry: bundles exist, URLs serve `/llms.txt` / `/llms-full.txt` / sitemap. |
 | `doc0 suggest [dir]` | Scan `./package.json` deps and report which have doc0 registry coverage. |
 | `doc0 mcp` | MCP server on stdio. `--installed-only` hides built-in URL sources; only user-added entries + installed bundles are exposed. |
-| `doc0 mcp install` | Add doc0 to Cursor `mcp.json` (merge; backs up existing file) |
+| `doc0 mcp install` | Add doc0 as an MCP server to a supported client. Interactive picker by default; use `--cursor` (or future `--claude-code` / `--windsurf`) to skip the prompt. Merges into the target `mcp.json`, backing up any existing file. |
 
 Flags: `--json` and `--raw` where documented; without a TTY, `read` defaults to raw markdown and `search`/`ls` default to JSON when `outputFormat` is `auto` in `~/.d0rc`.
 
@@ -91,10 +91,12 @@ doc0 mcp
 **Cursor:** merge doc0 into Cursor’s MCP config (global `~/.cursor/mcp.json` by default):
 
 ```bash
-doc0 mcp install
-doc0 mcp install --yes          # replace existing mcpServers.d0
-doc0 mcp install --project      # use ./.cursor/mcp.json in this repo
-doc0 mcp install --dry-run      # print JSON only
+doc0 mcp install                   # interactive picker: Cursor now, Claude Code + Windsurf soon
+doc0 mcp install --cursor          # skip the prompt, install into ~/.cursor/mcp.json
+doc0 mcp install --cursor --yes    # replace existing mcpServers.d0
+doc0 mcp install --cursor --project  # use ./.cursor/mcp.json in this repo
+doc0 mcp install --cursor --dry-run  # print JSON only
+doc0 mcp install --list            # show supported + planned clients
 ```
 
 Restart Cursor after install. See [Cursor MCP docs](https://cursor.com/docs/mcp). The entry is registered under `mcpServers.d0` (historical key — kept stable across the `d0` → `doc0` rename).

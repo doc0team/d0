@@ -95,9 +95,14 @@ doc0 suggest [dir]               # scan ./package.json and show which deps have 
 ## MCP
 
 ```bash
-doc0 mcp                         # start MCP server on stdio
-doc0 mcp --installed-only        # hide community + seed entries
-doc0 mcp install [--project] [--dry-run] [--yes]   # merge into ~/.cursor/mcp.json
+doc0 mcp                                   # start MCP server on stdio
+doc0 mcp --installed-only                  # hide community + seed entries
+doc0 mcp install                           # interactive picker (Cursor today; Claude Code / Windsurf soon)
+doc0 mcp install --cursor                  # skip the prompt; write ~/.cursor/mcp.json
+doc0 mcp install --cursor --project        # write ./.cursor/mcp.json in the current repo
+doc0 mcp install --cursor --dry-run        # print merged JSON; write nothing
+doc0 mcp install --cursor --yes            # replace an existing mcpServers.d0
+doc0 mcp install --list                    # print supported + planned clients
 ```
 
 ## Environment

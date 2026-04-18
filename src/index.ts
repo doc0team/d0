@@ -267,13 +267,45 @@ async function main(): Promise<void> {
   const mcpCmd = program.command("mcp").description("Model Context Protocol — stdio server or Cursor setup");
   mcpCmd
     .command("install")
-    .description("add doc0 to Cursor MCP config (merge into mcp.json)")
-    .option("--project", "write .cursor/mcp.json in the current directory instead of ~/.cursor/mcp.json")
-    .option("--dry-run", "print merged JSON without writing")
+    .description("add doc0 as an MCP server to a supported client (Cursor today; more soon)")
+    .option("--cursor", "install into Cursor (writes mcp.json)")
+    .option("--claude-code", "install into Claude Code (coming soon)")
+    .option("--windsurf", "install into Windsurf (coming soon)")
+    .option("--list", "print the list of supported/planned clients and exit")
+    .option("--project", "for Cursor: write ./.cursor/mcp.json in the current directory instead of ~/.cursor/mcp.json")
+    .option("--dry-run", "print merged config without writing")
     .option("--yes", "replace an existing mcpServers.d0 entry without prompting")
-    .action(async (opts: { project?: boolean; dryRun?: boolean; yes?: boolean }) => {
-      await cmdMcpInstall({ project: opts.project, dryRun: opts.dryRun, yes: opts.yes });
-    });
+    .action(
+      async (opts: {
+        cursor?: boolean;
+        claudeCode?: boolean;
+        windsurf?: boolean;
+        list?: boolean;
+        project?: boolean;
+        dryRun?: boolean;
+        yes?: boolean;
+      }) => {
+        const flagged = [
+          opts.cursor ? "cursor" : null,
+          opts.claudeCode ? "claude-code" : null,
+          opts.windsurf ? "windsurf" : null,
+        ].filter((c): c is "cursor" | "claude-code" | "windsurf" => c !== null);
+        if (flagged.length > 1) {
+          console.error(
+            `doc0 mcp install: pass only one client flag at a time (got: ${flagged.map((f) => `--${f}`).join(", ")}).`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        await cmdMcpInstall({
+          client: flagged[0],
+          list: opts.list,
+          project: opts.project,
+          dryRun: opts.dryRun,
+          yes: opts.yes,
+        });
+      },
+    );
   mcpCmd
     .option(
       "--installed-only",

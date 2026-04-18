@@ -18,13 +18,33 @@ Most agent flows are *one* `find_docs` call followed by *one* `read_docs` call. 
 
 ## Wire it up
 
-### One-shot (Cursor)
+### Interactive picker
+
+Run `doc0 mcp install` with no flag for a prompt that lists every supported client. Cursor is available today; Claude Code and Windsurf are on the roadmap and show up marked `(coming soon)`.
 
 ```bash
-doc0 mcp install                 # merges into ~/.cursor/mcp.json
-doc0 mcp install --project       # writes ./.cursor/mcp.json instead
-doc0 mcp install --dry-run       # print the merged JSON; write nothing
+doc0 mcp install
+# Pick an MCP client to install doc0 into:
+#   1) Cursor
+#   2) Claude Code  (coming soon)
+#   3) Windsurf  (coming soon)
+#
+# Select 1-3 (default: 1):
 ```
+
+The picker only shows when stdin + stdout are a TTY. In scripts or CI, pass the client flag explicitly instead (see below).
+
+### Non-interactive (Cursor)
+
+```bash
+doc0 mcp install --cursor                  # merges into ~/.cursor/mcp.json
+doc0 mcp install --cursor --project        # writes ./.cursor/mcp.json instead
+doc0 mcp install --cursor --dry-run        # print the merged JSON; write nothing
+doc0 mcp install --cursor --yes            # replace an existing mcpServers.d0
+doc0 mcp install --list                    # print supported + planned clients, then exit
+```
+
+> `--claude-code` and `--windsurf` are reserved for future releases and currently error out with `coming — not installable yet`. They're in the help output so you can see what's coming.
 
 ### Manual (Claude Desktop)
 
