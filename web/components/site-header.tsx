@@ -1,7 +1,12 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import { Logo } from "./logo";
 
 export function SiteHeader() {
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
     <header
       className="sticky top-0 z-40 backdrop-blur-md"
@@ -11,10 +16,10 @@ export function SiteHeader() {
       }}
     >
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-        <Link href="/" className="flex items-center gap-3" aria-label="doc0 home">
+        <Link href="/" className="flex items-center gap-3" aria-label="doc0 home" onClick={() => setIsOpen(false)}>
           <Logo />
         </Link>
-        <nav className="flex items-center gap-1 text-[13px]">
+        <nav className="hidden md:flex items-center gap-1 text-[13px]">
           <HeaderLink href="/docs">Docs</HeaderLink>
           <HeaderLink href="/registry">Registry</HeaderLink>
           <a
@@ -28,9 +33,47 @@ export function SiteHeader() {
             <GitHubIcon className="size-[18px]" />
           </a>
         </nav>
+        <button
+          className="md:hidden flex flex-col items-center justify-center w-8 h-8 gap-1.5 text-[var(--color-fg-muted)] hover:text-white transition-colors"
+          onClick={() => setIsOpen(!isOpen)}
+          aria-label="Toggle menu"
+        >
+          <div className={`h-[2px] w-4 bg-current transition-transform ${isOpen ? "translate-y-2 rotate-45" : ""}`} />
+          <div className={`h-[2px] w-4 bg-current transition-opacity ${isOpen ? "opacity-0" : ""}`} />
+          <div className={`h-[2px] w-4 bg-current transition-transform ${isOpen ? "-translate-y-2 -rotate-45" : ""}`} />
+        </button>
       </div>
+
+      {isOpen && (
+        <div className="md:hidden border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+          <nav className="flex flex-col p-4 space-y-2 text-[14px]">
+            <MobileHeaderLink href="/docs" onClick={() => setIsOpen(false)}>Docs</MobileHeaderLink>
+            <MobileHeaderLink href="/registry" onClick={() => setIsOpen(false)}>Registry</MobileHeaderLink>
+            <MobileHeaderLink href="https://github.com/doc0team/d0" external onClick={() => setIsOpen(false)}>GitHub</MobileHeaderLink>
+          </nav>
+        </div>
+      )}
     </header>
   );
+}
+
+function MobileHeaderLink({ href, children, external, onClick }: { href: string, children: React.ReactNode, external?: boolean, onClick: () => void }) {
+  const inner = (
+    <span
+      className="block rounded-md px-4 py-2.5 transition-colors hover:bg-[var(--color-surface)] hover:text-white"
+      style={{ color: "var(--color-fg-muted)" }}
+    >
+      {children}
+    </span>
+  );
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" onClick={onClick}>
+        {inner}
+      </a>
+    );
+  }
+  return <Link href={href} onClick={onClick}>{inner}</Link>;
 }
 
 function HeaderLink({

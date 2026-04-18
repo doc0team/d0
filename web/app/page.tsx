@@ -1,8 +1,8 @@
 import Link from "next/link";
-import Image from "next/image";
 import { DocumentZeroByline, DocumentZeroMark } from "@/components/logo";
 import { InstallHeroBar } from "@/components/install-hero-bar";
 import { TuiLogo } from "@/components/tui-logo";
+import { HeroTuiDemo } from "@/components/hero-tui-demo";
 
 export default function LandingPage() {
   return (
@@ -11,7 +11,7 @@ export default function LandingPage() {
         <Hero />
       </div>
 
-      <div className="mx-auto mt-12 max-w-6xl px-6 md:mt-16">
+      <div className="mx-auto mt-10 max-w-6xl px-6 md:mt-12">
         <HeroPreview />
       </div>
 
@@ -59,18 +59,14 @@ export default function LandingPage() {
 
 function Hero() {
   return (
-    <section className="pt-20 text-center md:pt-28">
-      <div className="flex justify-center">
-        <ProductPill />
-      </div>
-
+    <section className="pt-16 text-center md:pt-24">
       <h1 className="sr-only">doc0</h1>
-      <div className="mx-auto mt-10 flex justify-center overflow-x-auto">
+      <div className="mx-auto flex justify-center overflow-x-auto">
         <TuiLogo />
       </div>
 
       <p
-        className="mx-auto mt-7 max-w-2xl text-[1.05rem] leading-[1.55] tracking-[-0.005em] md:text-[1.18rem]"
+        className="mx-auto mt-6 max-w-2xl text-[1.05rem] leading-[1.55] tracking-[-0.005em] md:text-[1.18rem]"
         style={{ color: "var(--color-fg-muted)" }}
       >
         A terminal-native documentation runtime. Browse any framework&rsquo;s
@@ -81,9 +77,21 @@ function Hero() {
         One config file. One cache. Zero servers.
       </p>
 
-      <div className="mx-auto mt-10 flex justify-center px-1">
+      <div className="mx-auto mt-8 flex justify-center px-1">
         <InstallHeroBar />
       </div>
+
+      <p
+        className="mt-2 text-center font-mono text-[12.5px]"
+        style={{ color: "var(--color-fg-subtle)" }}
+      >
+        then:{" "}
+        <code style={{ color: "var(--color-fg)" }}>doc0</code>
+        <span className="mx-2 opacity-40" aria-hidden>
+          ·
+        </span>
+        <code style={{ color: "var(--color-fg)" }}>doc0 mcp install</code>
+      </p>
 
       <p className="mt-5 text-center text-[14px]" style={{ color: "var(--color-fg-subtle)" }}>
         <Link
@@ -108,22 +116,6 @@ function Hero() {
   );
 }
 
-/** Small pill linking to document0.com. */
-function ProductPill() {
-  return (
-    <Link
-      href="https://document0.com"
-      target="_blank"
-      rel="noreferrer"
-      className="product-pill"
-      aria-label="A document0 product"
-    >
-      <DocumentZeroMark size={12} className="opacity-80" />
-      <span className="product-pill-text">A document0 product</span>
-    </Link>
-  );
-}
-
 /* ─── HERO PREVIEW — Claude Code style: mac window on a painted backdrop ── */
 
 function HeroPreview() {
@@ -141,14 +133,7 @@ function HeroPreview() {
             <span className="mac-trailing" aria-hidden />
           </div>
           <div className="mac-body">
-            <Image
-              src="/tui.png"
-              alt="The doc0 TUI — a terminal showing the ASCII 'docs' logo above a list of popular documentation sites"
-              width={2048}
-              height={1280}
-              priority
-              className="mac-body-img"
-            />
+            <HeroTuiDemo />
           </div>
         </div>
       </div>
@@ -323,26 +308,23 @@ function Hint({ k, d }: { k: string; d: string }) {
 function AiChatFrame() {
   return (
     <div className="agent-trace">
-      <div className="trace-header">
-        Explored <b>3 files</b>, <b>1 command</b>
+      <div className="cursor-step">
+        <div className="cursor-step-header">
+          <ChevronDown />
+          <span>Explored <b>3 files</b>, <b>1 command</b></span>
+        </div>
+        
+        <div className="cursor-step-children">
+          <ToolPill>Ran <b>Find Docs</b> in doc0</ToolPill>
+          <div className="cursor-thought">Thought briefly</div>
+          <ToolPill>Ran <b>Grep Docs</b> in doc0</ToolPill>
+          <div className="cursor-thought">Thought briefly</div>
+          <ToolPill>Ran <b>Read Docs</b> in doc0</ToolPill>
+          <ToolPill>Ran <b>Read Docs</b> in doc0</ToolPill>
+        </div>
       </div>
 
-      <ToolPill>
-        Ran <b>Find Docs</b> in doc0
-      </ToolPill>
-      <div className="thought">Thought briefly</div>
-      <ToolPill>
-        Ran <b>Grep Docs</b> in doc0
-      </ToolPill>
-      <div className="thought">Thought briefly</div>
-      <ToolPill>
-        Ran <b>Read Docs</b> in doc0
-      </ToolPill>
-      <ToolPill>
-        Ran <b>Read Docs</b> in doc0
-      </ToolPill>
-
-      <div className="answer">
+      <div className="cursor-answer">
         <p>
           Stripe retries webhook deliveries with exponential backoff over{" "}
           <b>3 days</b> when the endpoint returns non-2xx or times out.
@@ -360,21 +342,41 @@ function AiChatFrame() {
   );
 }
 
+function ChevronRight() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0" style={{ color: "var(--color-fg-subtle)" }}>
+      <path d="M5.5 3L10.5 8L5.5 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronDown() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0" style={{ color: "var(--color-fg-subtle)" }}>
+      <path d="M3 5.5L8 10.5L13 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0" style={{ color: "var(--color-fg-subtle)" }}>
+      <path d="M3 4.5L7 8L3 11.5M9 11.5H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function ToolPill({ children }: { children: React.ReactNode }) {
   return (
-    <div className="tool-pill">
-      <span className="pill-icon" aria-hidden>
-        ⋮
-      </span>
+    <div className="cursor-tool-call">
+      <ChevronRight />
+      <TerminalIcon />
       <span className="pill-label">{children}</span>
-      <span className="pill-chevron" aria-hidden>
-        ⌄
-      </span>
     </div>
   );
 }
 
-/* ─── LOCAL / CUSTOMIZATION: single annotated config card ───────────────── */
+/* ─── LOCAL / CUSTOMIZATION: ~/.d0rc preview + compact legend ───────────── */
 
 function ConfigCard() {
   return (
@@ -385,67 +387,65 @@ function ConfigCard() {
           yaml · user-owned
         </span>
       </div>
-      <div className="config-body">
-        <pre className="config-code">
-          <span style={{ color: "var(--color-fg-subtle)" }}>{"# registry — point at your fork, or disable entirely\n"}</span>
-          <span>registryUrl: </span>
-          <span style={{ color: "var(--color-link)" }}>
-            https://raw.githubusercontent.com/myorg/d0-registry/main/registry.json
-          </span>
-          {"\n\n"}
 
-          <span style={{ color: "var(--color-fg-subtle)" }}>
-            {"# cache TTL for community-registry.json (default: 24h)\n"}
-          </span>
-          <span>communityRegistryTtlMs: </span>
-          <span style={{ color: "var(--color-accent)" }}>3600000</span>
-          {"\n\n"}
+      <pre className="config-code" tabIndex={0}>
+        <span style={{ color: "var(--color-fg-subtle)" }}>{"# excerpt — yours can be longer\n"}</span>
+        <span>registryUrl: </span>
+        <span style={{ color: "var(--color-link)" }}>https://raw.githubusercontent.com/</span>
+        {"\n"}
+        <span style={{ color: "var(--color-link)" }}>{"  myorg/d0-registry/main/registry.json"}</span>
+        {"\n\n"}
+        <span style={{ color: "var(--color-fg-subtle)" }}>{"# cache TTL for community index (default: 24h)\n"}</span>
+        <span>communityRegistryTtlMs: </span>
+        <span style={{ color: "var(--color-accent)" }}>3600000</span>
+        {"\n\n"}
+        <span style={{ color: "var(--color-fg-subtle)" }}>{"# agents: only installed bundles\n"}</span>
+        <span>mcp:</span>
+        {"\n"}
+        <span>{"  installedOnly: "}</span>
+        <span style={{ color: "var(--color-accent)" }}>true</span>
+        {"\n\n"}
+        <span style={{ color: "var(--color-fg-subtle)" }}>{"# every TUI key is overridable\n"}</span>
+        <span>keybindings:</span>
+        {"\n"}
+        <span>{"  quit: q\n  search: /\n  back: b\n  # …"}</span>
+      </pre>
 
-          <span style={{ color: "var(--color-fg-subtle)" }}>
-            {"# expose only your installed bundles to agents\n"}
-          </span>
-          <span>mcp:</span>
-          {"\n"}
-          <span>{"  installedOnly: "}</span>
-          <span style={{ color: "var(--color-accent)" }}>true</span>
-          {"\n\n"}
+      <div className="config-legend">
+        <div className="config-legend-item">
+          <div className="config-legend-k">registryUrl</div>
+          <p className="config-legend-v">
+            Your fork, <code className="config-legend-code">false</code> for air-gapped, or override with{" "}
+            <code className="config-legend-code">D0_REGISTRY_URL</code>.
+          </p>
+        </div>
+        <div className="config-legend-item">
+          <div className="config-legend-k">communityRegistryTtlMs</div>
+          <p className="config-legend-v">How long to cache the community registry before re-fetching.</p>
+        </div>
+        <div className="config-legend-item">
+          <div className="config-legend-k">mcp.installedOnly</div>
+          <p className="config-legend-v">Hide community and seed docs from MCP; curated bundles only.</p>
+        </div>
+        <div className="config-legend-item">
+          <div className="config-legend-k">keybindings</div>
+          <p className="config-legend-v">
+            Remap <code className="config-legend-code">quit</code>, <code className="config-legend-code">search</code>, navigation, scroll, and more.
+          </p>
+        </div>
+        <div className="config-legend-item config-legend-item-wide">
+          <div className="config-legend-k">doc0 doctor · doc0 registry status</div>
+          <p className="config-legend-v">Validate registry entries and inspect cache before a team rollout.</p>
+        </div>
+      </div>
 
-          <span style={{ color: "var(--color-fg-subtle)" }}>
-            {"# rebind TUI keys — all keybindings are overridable\n"}
-          </span>
-          <span>keybindings:</span>
-          {"\n"}
-          <span>{"  quit: q\n"}</span>
-          <span>{"  search: /\n"}</span>
-          <span>{"  back: b\n"}</span>
-          <span>{"  scroll_up: k\n"}</span>
-          <span>{"  scroll_down: j\n"}</span>
-        </pre>
-
-        <aside className="config-notes">
-          <div className="config-note">
-            <b>registryUrl</b>
-            Point at your own fork, or set to{" "}
-            <code style={{ color: "var(--color-accent)" }}>false</code> for air-gapped
-            networks. Env var <code>D0_REGISTRY_URL</code> wins when set.
-          </div>
-          <div className="config-note">
-            <b>mcp.installedOnly</b>
-            Hide community + seed entries from agents. Useful for team setups
-            where only curated bundles should be exposed.
-          </div>
-          <div className="config-note">
-            <b>keybindings</b>
-            Every TUI key (<code>quit</code>, <code>search</code>,{" "}
-            <code>back</code>, <code>forward</code>, <code>scroll_up/down</code>,{" "}
-            <code>top/bottom</code>) is remappable.
-          </div>
-          <div className="config-note">
-            <b>doc0 doctor · doc0 registry status</b>
-            Sanity-check every registry entry; inspect the cache state and
-            last-fetched timestamp before shipping a team setup.
-          </div>
-        </aside>
+      <div className="config-card-foot">
+        <Link
+          href="/docs/configuration"
+          className="config-card-foot-link"
+        >
+          Full configuration reference →
+        </Link>
       </div>
     </div>
   );
@@ -482,46 +482,50 @@ function Faint({ children }: { children: React.ReactNode }) {
 function RegistryBand({ className = "" }: { className?: string }) {
   return (
     <section
-      className={`relative overflow-hidden rounded-2xl p-8 md:p-12 ${className}`}
+      className={`relative overflow-hidden rounded-2xl p-8 md:p-16 ${className}`}
       style={{
         background: "var(--color-surface)",
         border: "1px solid var(--color-border)",
       }}
     >
-      <div className="grid gap-10 md:grid-cols-[1.1fr_1fr] md:items-center">
-        <div>
-          <Eyebrow>community registry</Eyebrow>
-          <h2 className="mt-4 text-[clamp(1.6rem,3.2vw,2rem)] font-bold leading-tight tracking-[-0.015em]">
-            One JSON file on GitHub. PRs are the UI.
-          </h2>
-          <p
-            className="mt-4 max-w-md leading-relaxed"
-            style={{ color: "var(--color-fg-muted)" }}
-          >
-            No servers. No accounts. Open a PR against{" "}
-            <a
-              href="https://github.com/doc0team/d0-registry"
-              target="_blank"
-              rel="noreferrer"
-              className="underline decoration-dotted underline-offset-4"
-              style={{ color: "var(--color-link)" }}
-            >
-              doc0team/d0-registry
-            </a>{" "}
-            and your docs source ships to every user within 24h.
-          </p>
-          <Link
-            href="/docs/registry"
-            className="mt-5 inline-flex items-center gap-1.5 text-sm"
+      <div className="flex flex-col items-center text-center">
+        <Eyebrow>community registry</Eyebrow>
+        <h2 className="mt-5 max-w-2xl text-[clamp(1.6rem,3.2vw,2rem)] font-bold leading-tight tracking-[-0.015em]">
+          One JSON file on GitHub. PRs are the UI.
+        </h2>
+        <p
+          className="mt-4 max-w-2xl leading-relaxed"
+          style={{ color: "var(--color-fg-muted)" }}
+        >
+          No servers. No accounts. Open a PR against{" "}
+          <a
+            href="https://github.com/doc0team/d0-registry"
+            target="_blank"
+            rel="noreferrer"
+            className="underline decoration-dotted underline-offset-4 transition-colors hover:text-white"
             style={{ color: "var(--color-link)" }}
           >
-            How the registry works →
-          </Link>
-        </div>
+            doc0team/d0-registry
+          </a>{" "}
+          and your docs source ships to every user within 24h.
+        </p>
+        <Link
+          href="/docs/registry"
+          className="mt-5 inline-flex items-center gap-1.5 text-sm transition-colors hover:text-white"
+          style={{ color: "var(--color-link)" }}
+        >
+          How the registry works →
+        </Link>
 
-        <div className="term">
+        <div className="term mt-12 w-full max-w-3xl text-left">
           <div className="term-bar">
-            <span>~/.d0rc</span>
+            <span className="mac-dots" aria-hidden>
+              <span className="mac-dot mac-dot-red" />
+              <span className="mac-dot mac-dot-yellow" />
+              <span className="mac-dot mac-dot-green" />
+            </span>
+            <span className="term-title">~/.d0rc</span>
+            <span className="mac-trailing" aria-hidden />
           </div>
           <pre className="term-body" style={{ fontSize: 12.5 }}>
             <Faint># point at your own fork</Faint>

@@ -47,8 +47,8 @@ function TreeItem({
           </SidebarLink>
         ) : (
           <div
-            className="px-2 py-1.5 font-semibold"
-            style={{ paddingLeft: 8 + depth * 12, color: "var(--color-fg)" }}
+            className="py-1.5 font-semibold"
+            style={{ paddingLeft: 12 + depth * 12, paddingRight: 12, color: "var(--color-fg)" }}
           >
             {node.name}
           </div>
@@ -89,16 +89,15 @@ function SidebarLink({
   return (
     <Link
       href={href}
-      className="block rounded-md py-1.5 transition-colors"
+      className={`flex items-center rounded-full py-[7px] leading-none transition-colors ${
+        active
+          ? "bg-[var(--color-surface)] text-[var(--color-fg)]"
+          : "text-[var(--color-fg-muted)] hover:bg-[color-mix(in_srgb,var(--color-surface)_50%,transparent)] hover:text-[var(--color-fg)]"
+      }`}
       style={{
-        paddingLeft: 8 + depth * 12,
-        paddingRight: 8,
+        paddingLeft: 12 + depth * 12,
+        paddingRight: 12,
         fontWeight: bold ? 600 : 400,
-        color: active ? "var(--color-fg)" : "var(--color-fg-muted)",
-        background: active ? "var(--color-surface)" : "transparent",
-        borderLeft: active ? "2px solid var(--color-accent)" : "2px solid transparent",
-        borderTopLeftRadius: active ? 0 : 6,
-        borderBottomLeftRadius: active ? 0 : 6,
       }}
     >
       {children}

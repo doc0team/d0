@@ -46,55 +46,57 @@ export default async function DocsPage({ params }: { params: Promise<Params> }) 
     (frontmatter.description as string | undefined) ?? page.frontmatter.description;
 
   return (
-    <article className="doc-prose" style={{ maxWidth: "720px" }}>
-      {breadcrumbs.length > 0 && (
-        <nav
-          aria-label="Breadcrumb"
-          className="mb-6 flex flex-wrap items-center gap-2 font-mono text-[11px] uppercase tracking-[0.1em]"
-          style={{ color: "var(--color-fg-subtle)" }}
-        >
-          {breadcrumbs.map((b, i) => (
-            <span key={i} className="flex items-center gap-2">
-              {i > 0 && <span aria-hidden>/</span>}
-              {b.url ? (
-                <Link href={b.url} className="hover:text-white transition-colors">
-                  {b.name}
-                </Link>
-              ) : (
-                <span style={{ color: "var(--color-fg-muted)" }}>{b.name}</span>
-              )}
-            </span>
-          ))}
-        </nav>
-      )}
-
-      <header className="mb-10">
-        <h1 className="!mb-3">{title}</h1>
-        {description && (
-          <p
-            className="!m-0 text-[1.05rem] leading-relaxed"
-            style={{ color: "var(--color-fg-muted)" }}
+    <>
+      <article className="doc-prose" style={{ maxWidth: "720px" }}>
+        {breadcrumbs.length > 0 && (
+          <nav
+            aria-label="Breadcrumb"
+            className="mb-6 flex flex-wrap items-center gap-2 font-mono text-[11px] uppercase tracking-[0.1em]"
+            style={{ color: "var(--color-fg-subtle)" }}
           >
-            {description}
-          </p>
+            {breadcrumbs.map((b, i) => (
+              <span key={i} className="flex items-center gap-2">
+                {i > 0 && <span aria-hidden>/</span>}
+                {b.url ? (
+                  <Link href={b.url} className="hover:text-white transition-colors">
+                    {b.name}
+                  </Link>
+                ) : (
+                  <span style={{ color: "var(--color-fg-muted)" }}>{b.name}</span>
+                )}
+              </span>
+            ))}
+          </nav>
         )}
-      </header>
 
-      <Content components={mdxComponents} />
+        <header className="mb-10">
+          <h1 className="!mb-3">{title}</h1>
+          {description && (
+            <p
+              className="!m-0 text-[1.05rem] leading-relaxed"
+              style={{ color: "var(--color-fg-muted)" }}
+            >
+              {description}
+            </p>
+          )}
+        </header>
 
-      {(previous || next) && (
-        <nav
-          aria-label="Pagination"
-          className="mt-14 grid gap-3 pt-6 sm:grid-cols-2"
-          style={{ borderTop: "1px solid var(--color-border)" }}
-        >
-          {previous ? <PagerLink dir="prev" href={previous.url} label={previous.name} /> : <span />}
-          {next ? <PagerLink dir="next" href={next.url} label={next.name} /> : <span />}
-        </nav>
-      )}
+        <Content components={mdxComponents} />
+
+        {(previous || next) && (
+          <nav
+            aria-label="Pagination"
+            className="mt-14 grid gap-3 pt-6 sm:grid-cols-2"
+            style={{ borderTop: "1px solid var(--color-border)" }}
+          >
+            {previous ? <PagerLink dir="prev" href={previous.url} label={previous.name} /> : <span />}
+            {next ? <PagerLink dir="next" href={next.url} label={next.name} /> : <span />}
+          </nav>
+        )}
+      </article>
 
       {toc.length > 2 && <TocRail toc={toc} />}
-    </article>
+    </>
   );
 }
 
@@ -126,29 +128,27 @@ function TocRail({ toc }: { toc: Array<{ id: string; text: string; depth: number
   return (
     <aside
       aria-label="On this page"
-      className="hidden xl:block fixed text-[12.5px]"
+      className="hidden xl:block fixed text-[12px]"
       style={{
         top: 96,
         right: "max(24px, calc((100vw - 1200px) / 2))",
         width: 180,
-        color: "var(--color-fg-muted)",
       }}
     >
       <div
-        className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.14em]"
+        className="mb-3 font-mono text-[10px] uppercase tracking-[0.14em]"
         style={{ color: "var(--color-fg-subtle)" }}
       >
         On this page
       </div>
-      <ul className="space-y-1.5">
+      <ul className="flex flex-col gap-1.5 list-none m-0 p-0">
         {toc
           .filter((h) => h.depth <= 3)
           .map((h) => (
-            <li key={h.id} style={{ paddingLeft: (h.depth - 1) * 10 }}>
+            <li key={h.id} className="m-0 p-0" style={{ paddingLeft: (h.depth - 1) * 12 }}>
               <a
                 href={`#${h.id}`}
-                className="block hover:text-white transition-colors"
-                style={{ color: "var(--color-fg-muted)" }}
+                className="block text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] no-underline transition-colors"
               >
                 {h.text}
               </a>
