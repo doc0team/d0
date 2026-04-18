@@ -18,6 +18,7 @@ import { cmdIngestBundle, cmdIngestUrl } from "./commands/ingest.js";
 import { cmdDoctor } from "./commands/doctor.js";
 import { cmdSuggest } from "./commands/suggest.js";
 import { cmdRegistrySync, cmdRegistryStatus } from "./commands/registry.js";
+import { cmdConfigEdit, cmdConfigPath, cmdConfigShow } from "./commands/config.js";
 import { isUrlLike } from "./core/web-docs.js";
 
 const GLOBAL = new Set([
@@ -37,6 +38,7 @@ const GLOBAL = new Set([
   "doctor",
   "suggest",
   "registry",
+  "config",
   "help",
   "-h",
   "--help",
@@ -337,6 +339,32 @@ async function main(): Promise<void> {
     .option("--json", "JSON output")
     .action(async (opts: { json?: boolean }) => {
       await cmdRegistryStatus(opts, config);
+    });
+
+  const configCmd = program
+    .command("config")
+    .description("inspect or edit ~/.d0rc (theme, keybindings, registryUrl, …)");
+  configCmd
+    .command("path")
+    .description("print the path to ~/.d0rc and whether it exists")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdConfigPath(opts);
+    });
+  configCmd
+    .command("show")
+    .description("print the effective config (file + env overrides, defaults filled in)")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdConfigShow(opts);
+    });
+  configCmd
+    .command("edit")
+    .description("open ~/.d0rc in $VISUAL/$EDITOR (creates it from a template if missing)")
+    .option("--editor <cmd>", "override $VISUAL/$EDITOR for this invocation")
+    .option("--print", "create the file if missing, then just print the path (skip launching the editor)")
+    .action(async (opts: { editor?: string; print?: boolean }) => {
+      await cmdConfigEdit(opts);
     });
 
   await program.parseAsync(argv, { from: "user" });

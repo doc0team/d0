@@ -30,14 +30,20 @@
     "mcp"
   ],
   "license": "MIT",
+  "author": "doc0 contributors",
+  "homepage": "https://github.com/doc0team/d0#readme",
+  "bugs": {
+    "url": "https://github.com/doc0team/d0/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/madis/d0.git"
+    "url": "git+https://github.com/doc0team/d0.git"
   },
   "files": [
     "dist",
     "registry.json",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
