@@ -39,10 +39,15 @@ export function DocumentZeroMark({
 export function Logo({ size = 18 }: { size?: number }) {
   return (
     <span
-      className="inline-flex items-center gap-2 font-mono font-semibold leading-none tracking-tight"
+      className="inline-flex items-center gap-2.5 font-mono font-semibold leading-none tracking-tight"
       style={{ fontSize: size }}
     >
       <DocumentZeroMark size={size + 2} className="text-[var(--color-fg)]" />
+      <span
+        aria-hidden
+        className="inline-block h-[1.05em] w-px shrink-0 rounded-full"
+        style={{ background: "var(--color-border-strong)" }}
+      />
       <span style={{ color: "var(--color-fg)" }}>doc0</span>
     </span>
   );

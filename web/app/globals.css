@@ -512,3 +512,203 @@ a {
   border-top: 1px solid var(--color-border);
 }
 
+/* ─── Hero install pill (command + copy, intrinsic width, centered) ───────── */
+.install-hero-bar {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-width: min(100%, 22rem);
+  gap: 12px;
+  padding: 12px 14px 12px 26px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+.install-hero-command {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 4px 4px 0;
+  font-family: var(--font-mono);
+  font-size: clamp(13px, 2.1vw, 15px);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  text-align: center;
+}
+.install-hero-prompt {
+  color: var(--color-fg-subtle);
+}
+.install-hero-npm {
+  color: var(--color-accent-soft);
+  font-weight: 600;
+}
+.install-hero-rest {
+  color: var(--color-fg);
+}
+.install-hero-copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-right: 4px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-fg-subtle);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.install-hero-copy:hover {
+  color: var(--color-fg);
+  background: rgba(255, 255, 255, 0.06);
+}
+.install-hero-copied {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+/* ─── Hero: "A document0 product" pill ───────────────────────────────────── */
+.product-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-fg-muted);
+  letter-spacing: 0.02em;
+  transition: border-color 0.15s, color 0.15s;
+}
+.product-pill:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-fg);
+}
+.product-pill-text {
+  color: var(--color-fg-muted);
+}
+
+/* ─── Hero preview: mac-style window on painted backdrop ───────────────────
+   Claude Code wraps the product UI in a rounded panel with a textured
+   backdrop and floats a mac window inside. We reuse /public/background.jpg
+   as the backdrop and show the real TUI screenshot inside a window frame. */
+.hero-preview {
+  position: relative;
+  border-radius: 28px;
+  overflow: hidden;
+  isolation: isolate;
+  background-color: #1a1a20;
+  border: 1px solid var(--color-border);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 40px 80px -40px rgba(0, 0, 0, 0.8);
+}
+/* Oversized layer + cover = uniform zoom (no squeeze); right keeps the far-right of the art. */
+.hero-preview::after {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("/background.jpg");
+  background-size: cover;
+  background-position: right center;
+  background-repeat: no-repeat;
+}
+.hero-preview::before {
+  /* Gentle vignette + bottom darkening for legibility against the painting. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      100% 90% at 100% 20%,
+      rgba(0, 0, 0, 0.05) 0%,
+      rgba(0, 0, 0, 0.35) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.12) 0%,
+      rgba(0, 0, 0, 0.1) 35%,
+      rgba(0, 0, 0, 0.4) 100%
+    );
+  pointer-events: none;
+  z-index: 1;
+}
+.hero-preview-inner {
+  position: relative;
+  z-index: 2;
+  padding: clamp(28px, 5vw, 72px) clamp(16px, 4vw, 56px) 0;
+}
+
+.mac-window {
+  margin: 0 auto;
+  max-width: 960px;
+  /* Only the title bar is rounded; TUI screenshot below stays square (no inner rounding). */
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  border: none;
+  filter: drop-shadow(0 28px 56px rgba(0, 0, 0, 0.55));
+  /* Window "bleeds" into the bottom of the panel, Claude-style. */
+  margin-bottom: -1px;
+}
+.mac-titlebar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 12px 12px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: none;
+  background: linear-gradient(180deg, #24242a 0%, #1d1d22 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+.mac-dots {
+  display: inline-flex;
+  gap: 7px;
+}
+.mac-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25) inset;
+}
+.mac-dot-red { background: #ff5f57; }
+.mac-dot-yellow { background: #febc2e; }
+.mac-dot-green { background: #28c840; }
+.mac-title {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-fg-subtle);
+  letter-spacing: 0.04em;
+}
+.mac-trailing {
+  width: 49px; /* mirrors the three dots + gap, so title stays centered */
+}
+.mac-body {
+  display: block;
+  background: #0a0a0d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0;
+}
+.mac-body-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0;
+}
+

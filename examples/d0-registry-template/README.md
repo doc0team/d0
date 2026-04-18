@@ -35,7 +35,7 @@ A GitHub Action validates the JSON shape on every PR.
 
 | field         | required | notes                                                                                                |
 | ------------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| `id`          | yes      | lowercase, hyphen-separated, unique. Matches what users type: `doc0 read stripe`.                      |
+| `id`          | yes      | lowercase, hyphen-separated, unique. Matches what users type: `doc0 browse stripe` (TUI) or `doc0 read <url>` for a single page. |
 | `aliases`     | no       | Extra strings the CLI matches against. Keep them meaningful (not "api", "docs").                     |
 | `sourceType`  | yes      | Always `"url"` in the community registry. Bundles are installed locally via `doc0 install`.           |
 | `source`      | yes      | The docs root URL. Prefer ones that expose `/llms.txt` or `/llms-full.txt` for fast MCP access.     |

@@ -238,6 +238,86 @@ function pathStartsWithPrefix(url: string, prefix: string | null): boolean {
   }
 }
 
+/**
+ * First path segment looks like a doc i18n locale (`en`, `es`, `zh-cn`, `pt-br`).
+ * Starlight / Docusaurus-style sites put this right after `/`.
+ */
+function isLikelyLocaleSegment(seg: string): boolean {
+  if (!seg) return false;
+  if (seg.length === 2 && /^[a-z]{2}$/i.test(seg)) return true;
+  return /^[a-z]{2}-[a-z0-9]+$/i.test(seg);
+}
+
+/**
+ * Huge sitemaps often list every translated URL (`/en/...`, `/es/...`, …). Collapse to one
+ * language catalog for the TUI/MCP unless the user opted out.
+ *
+ * - Set `D0_DOCS_LOCALE=en` (or `pt-br`, etc.) to force a locale.
+ * - Set `D0_DOCS_LOCALE=off` to keep all languages from the sitemap.
+ */
+function filterSitemapUrlsToSingleCatalogLocale(urls: string[], base: URL): string[] {
+  const raw = process.env.D0_DOCS_LOCALE?.trim();
+  if (raw && (raw.toLowerCase() === "off" || raw === "*")) return urls;
+  if (urls.length < 400) return urls;
+
+  const localeCounts = new Map<string, number>();
+  for (const u of urls) {
+    try {
+      const parts = new URL(u).pathname.split("/").filter(Boolean);
+      const first = parts[0];
+      if (first && isLikelyLocaleSegment(first)) {
+        const key = first.toLowerCase();
+        localeCounts.set(key, (localeCounts.get(key) ?? 0) + 1);
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
+  if (localeCounts.size < 2) return urls;
+
+  const tagged = [...localeCounts.values()].reduce((a, b) => a + b, 0);
+  if (tagged < Math.min(300, urls.length * 0.35)) return urls;
+
+  const preferred = resolvePreferredLocaleForDocs(localeCounts, base, raw);
+  if (!preferred) return urls;
+
+  return urls.filter((u) => {
+    try {
+      const parts = new URL(u).pathname.split("/").filter(Boolean);
+      const first = parts[0];
+      if (!first || !isLikelyLocaleSegment(first)) return true;
+      return first.toLowerCase() === preferred;
+    } catch {
+      return true;
+    }
+  });
+}
+
+function resolvePreferredLocaleForDocs(
+  localeCounts: Map<string, number>,
+  base: URL,
+  envLocale: string | undefined,
+): string | null {
+  const env = envLocale?.toLowerCase();
+  if (env && localeCounts.has(env)) return env;
+
+  const baseFirst = base.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+  if (baseFirst && localeCounts.has(baseFirst)) return baseFirst;
+
+  if (localeCounts.has("en")) return "en";
+
+  let best = "";
+  let bestN = 0;
+  for (const [k, n] of localeCounts) {
+    if (n > bestN) {
+      best = k;
+      bestN = n;
+    }
+  }
+  return best || null;
+}
+
 /** Compare sitemap vs nav links without trailing-slash mismatches. */
 function pageUrlMatchKey(url: string): string {
   try {
@@ -599,11 +679,46 @@ async function probeLlmsTxt(base: URL): Promise<DocsSourceProbe["llmsTxt"]> {
   return { available: false };
 }
 
-async function probeSitemap(base: URL): Promise<DocsSourceProbe["sitemap"]> {
-  const candidates = [new URL("/sitemap.xml", base).toString(), new URL("/sitemap_index.xml", base).toString()];
-  for (const url of candidates) {
+/**
+ * Root sitemap URLs to try in order. Many static hosts (e.g. Astro on Netlify) serve
+ * `/sitemap-index.xml` while `/sitemap.xml` is 404; some sites expose a split urlset at
+ * `/sitemap-0.xml` only.
+ */
+function sitemapRootCandidateUrls(base: URL): string[] {
+  return [
+    "/sitemap-index.xml",
+    "/sitemap_index.xml",
+    "/sitemap-0.xml",
+    "/sitemap.xml",
+  ].map((p) => new URL(p, base).toString());
+}
+
+function looksLikeSitemapXml(text: string): boolean {
+  const t = text.trim();
+  if (!t || looksLikeHtmlDocument(t)) return false;
+  return /<urlset[\s>]/i.test(t) || /<sitemapindex[\s>]/i.test(t);
+}
+
+/** First reachable root document: sitemap index or plain urlset. */
+async function fetchSitemapRootXml(base: URL): Promise<string | null> {
+  for (const url of sitemapRootCandidateUrls(base)) {
     try {
       const text = await fetchText(url);
+      if (!looksLikeSitemapXml(text)) continue;
+      if (extractSitemapLocs(text).length === 0) continue;
+      return text;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
+async function probeSitemap(base: URL): Promise<DocsSourceProbe["sitemap"]> {
+  for (const url of sitemapRootCandidateUrls(base)) {
+    try {
+      const text = await fetchText(url);
+      if (!looksLikeSitemapXml(text)) continue;
       const locs = extractSitemapLocs(text);
       if (locs.length > 0) return { available: true, url, urlCount: locs.length };
     } catch {
@@ -615,7 +730,7 @@ async function probeSitemap(base: URL): Promise<DocsSourceProbe["sitemap"]> {
 
 /**
  * Probe a docs URL to see which agent-friendly surfaces it ships: the URL itself (HEAD),
- * `/llms.txt`, `/llms-full.txt`, and `/sitemap.xml`. Non-blocking / bounded — runs all
+ * `/llms.txt`, `/llms-full.txt`, and sitemap roots (`/sitemap-index.xml`, `/sitemap-0.xml`, `/sitemap.xml`, …). Non-blocking / bounded — runs all
  * probes in parallel with the fetch timeouts of the underlying client.
  */
 export async function probeDocsSource(input: string): Promise<DocsSourceProbe> {
@@ -699,17 +814,15 @@ function extractSitemapLocs(xml: string): string[] {
   return out;
 }
 
-/** Page URLs from `/sitemap.xml` (plain urlset or sitemap index pointing at nested maps). */
+/**
+ * Page URLs from sitemap discovery (`sitemap-index.xml`, `sitemap-0.xml`, `sitemap.xml`, …):
+ * plain urlset or index pointing at nested urlsets.
+ */
 async function listFromSitemap(base: URL): Promise<string[]> {
   const origin = base.origin;
   const prefix = docPathPrefix(base);
-  const primary = new URL("/sitemap.xml", base).toString();
-  let rootXml: string;
-  try {
-    rootXml = await fetchText(primary);
-  } catch {
-    return [];
-  }
+  const rootXml = await fetchSitemapRootXml(base);
+  if (!rootXml) return [];
 
   const urlsetParts: string[] = [];
   if (/<sitemapindex[\s>]/i.test(rootXml)) {
@@ -746,13 +859,14 @@ async function listFromSitemap(base: URL): Promise<string[]> {
     if (pages.size >= MAX_DISCOVERED_URLS) break;
   }
 
-  return [...pages];
+  const flat = [...pages];
+  return filterSitemapUrlsToSingleCatalogLocale(flat, base);
 }
 
 export async function listDocUrls(input: string, opts?: ListDocUrlsOptions): Promise<string[]> {
   const base = normalizeInputUrl(input);
   const includeExternal = opts?.llmsIncludeExternal === true;
-  const cacheKey = `${base.origin}${base.pathname}|v3-nav|${includeExternal ? "x" : "o"}`;
+  const cacheKey = `${base.origin}${base.pathname}|v5-locale|${includeExternal ? "x" : "o"}`;
   const cached = fromCache(indexCache.get(cacheKey) ? { ts: indexCache.get(cacheKey)!.ts, value: indexCache.get(cacheKey)!.pages } : undefined);
   if (cached) return cached;
 

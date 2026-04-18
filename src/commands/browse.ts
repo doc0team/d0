@@ -1,17 +1,14 @@
-import { findInstalledBundle } from "../core/storage.js";
+import { findInstalledBundle, type InstalledBundleRef } from "../core/storage.js";
 import { loadBundle, listSlugs } from "../core/bundle.js";
 import type { D0Config } from "../core/config.js";
+import { resolveDocsRegistryEntry } from "../core/registry-client.js";
 import { deriveBrowseTargets, isUrlLike, type ListDocUrlsOptions } from "../core/web-docs.js";
 
-export async function cmdBrowse(pkg: string, _config: D0Config, _opts: { ink?: boolean } = {}): Promise<void> {
-  const ref = await findInstalledBundle(pkg);
-  if (!ref) {
-    console.error(`doc0: bundle not installed: ${pkg}`);
-    process.exitCode = 1;
-    return;
-  }
+export type BrowseOpts = { ink?: boolean; external?: boolean };
+
+async function runBrowseInstalledBundle(ref: InstalledBundleRef, config: D0Config): Promise<void> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
-    console.error("doc0: interactive browse requires a TTY. Use: doc0 <pkg> ls | doc0 <pkg> read <slug>");
+    console.error("doc0 browse: interactive browse requires a TTY. Use: doc0 <pkg> ls | doc0 <pkg> read <slug>");
     process.exitCode = 1;
     return;
   }
@@ -24,7 +21,40 @@ export async function cmdBrowse(pkg: string, _config: D0Config, _opts: { ink?: b
   }
 
   const { runBrowseTui } = await import("../tui/app.js");
-  await runBrowseTui(bundle, _config);
+  await runBrowseTui(bundle, config);
+}
+
+/**
+ * Interactive TUI: installed bundle by name, or a registry id (URL entry → live docs TUI;
+ * bundle entry → same TUI when that bundle is installed).
+ */
+export async function cmdBrowse(pkg: string, config: D0Config, opts: BrowseOpts = {}): Promise<void> {
+  const ref = await findInstalledBundle(pkg);
+  if (ref) {
+    await runBrowseInstalledBundle(ref, config);
+    return;
+  }
+
+  const entry = await resolveDocsRegistryEntry(pkg, {});
+  if (entry?.sourceType === "url") {
+    await cmdBrowseUrl(entry.source, { external: opts.external, ink: opts.ink }, config);
+    return;
+  }
+  if (entry?.sourceType === "bundle") {
+    const installed = await findInstalledBundle(entry.source);
+    if (installed) {
+      await runBrowseInstalledBundle(installed, config);
+      return;
+    }
+    console.error(
+      `doc0 browse: registry entry "${pkg}" refers to bundle ${entry.source}, which is not installed. Use: doc0 add --local <path-to-bundle-dir>`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  console.error(`doc0 browse: unknown bundle or registry id: ${pkg}`);
+  process.exitCode = 1;
 }
 
 export async function cmdBrowseUrl(

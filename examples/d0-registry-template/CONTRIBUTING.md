@@ -28,7 +28,7 @@ echo 'registryUrl: https://raw.githubusercontent.com/YOUR-USER/d0-registry/YOUR-
 
 doc0 registry sync
 doc0 doctor
-doc0 read your-id
+doc0 browse your-id
 ```
 
 If `doc0 doctor` shows your entry as `ok`, you're good to PR.

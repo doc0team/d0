@@ -47,6 +47,13 @@ doc0 @example/lib
 doc0 @d0/docs
 ```
 
+**Registry id** (URL-backed entry from `registry.json` — no `doc0 add` required):
+
+```powershell
+doc0 browse astro
+doc0 astro
+```
+
 **Keyboard (vim-style):**
 
 | Key | Action |

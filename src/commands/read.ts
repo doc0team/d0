@@ -18,7 +18,7 @@ export async function cmdRead(
   }
   const ref = await findInstalledBundle(pkg);
   if (!ref) {
-    console.error(`d0: bundle not installed: ${pkg}`);
+    console.error(`doc0 read: bundle not installed: ${pkg}`);
     process.exitCode = 1;
     return;
   }

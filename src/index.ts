@@ -102,14 +102,14 @@ async function runBundleCommand(
     return;
   }
 
-  const { rest, json, raw, ink } = splitFlags(argv);
+  const { rest, json, raw, ink, external } = splitFlags(argv);
   const [sub, ...tail] = rest;
   if (!sub || sub.startsWith("-")) {
-    await cmdBrowse(pkg, config, { ink });
+    await cmdBrowse(pkg, config, { ink, external });
     return;
   }
   if (sub === "browse") {
-    await cmdBrowse(pkg, config, { ink });
+    await cmdBrowse(pkg, config, { ink, external });
     return;
   }
   if (sub === "ls") {
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
   const program = new Command();
   program
     .name("doc0")
-    .description("Terminal-native documentation — browse docs in the CLI; same commands for humans and agents.")
+    .description("Terminal-native documentation - browse docs in the CLI; same commands for humans and agents.")
     .version("0.1.0")
     .option("--json", "force JSON output where applicable")
     .option("--raw", "force raw markdown output for read");
@@ -215,8 +215,10 @@ async function main(): Promise<void> {
 
   program
     .command("browse")
-    .description("interactive Ink/React TUI for installed bundles or live docs URLs")
-    .argument("[target]", "bundle name or docs URL (https://…)")
+    .description(
+      "interactive Ink/React TUI - installed bundle, registry id (URL-backed docs), or docs URL",
+    )
+    .argument("[target]", "bundle name, registry id, or docs URL (https://…)")
     .option("--external", "with a URL: include off-site links when discovering pages")
     .option("--ink", "no-op (kept for CLI compatibility; browse always uses Ink)")
     .action(async (target: string | undefined, opts: { external?: boolean; ink?: boolean }) => {

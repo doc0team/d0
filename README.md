@@ -200,8 +200,11 @@ There is still no doc0-hosted registry service. Everything resolves from the shi
 
 Large doc sites can return tens of thousands of URLs from sitemaps and `llms.txt`. doc0 caps work in layers so runs stay predictable; raise caps when you want maximum coverage (more time, disk, and HTTP load).
 
+**Multilingual sitemaps.** Many sites (e.g. Starlight on Astro) list every locale in the sitemap (`/en/…`, `/es/…`, …). When doc0 detects a large, multi-locale URL set from the sitemap, it **keeps a single language catalog** so the TUI and discovery stay usable. It prefers, in order: `D0_DOCS_LOCALE` if set and present in the sitemap; else the locale implied by your browse URL’s first path segment; else `en` if present; else the locale with the most URLs. URLs whose first path segment does not look like a locale tag (two letters or `xx-yy`) are left unchanged. Set `D0_DOCS_LOCALE=off` or `D0_DOCS_LOCALE=*` to disable filtering and keep every locale from the sitemap.
+
 | Variable | What it controls | Default |
 |----------|------------------|---------|
+| `D0_DOCS_LOCALE` | Force one locale for sitemap-derived pages (`en`, `pt-br`, …), or `off` / `*` to keep all languages | unset (auto when heuristics match) |
 | `D0_MAX_DISCOVERED_URLS` | Max URLs kept after merging `llms.txt`, sitemaps, and nav discovery | `50000` |
 | `D0_MAX_SITEMAP_NESTED` | Max nested sitemap index pages to follow | `200` |
 | `D0_SEARCH_MAX_FETCH` | Live `searchDocUrls` (CLI/TUI): max pages to fetch and scan for a query (`0` = all discovered up to `D0_MAX_DISCOVERED_URLS`) | `10000` |

@@ -1,12 +1,21 @@
 import Link from "next/link";
-import { DocumentZeroByline } from "@/components/logo";
+import Image from "next/image";
+import { DocumentZeroByline, DocumentZeroMark } from "@/components/logo";
+import { InstallHeroBar } from "@/components/install-hero-bar";
 import { TuiLogo } from "@/components/tui-logo";
 
 export default function LandingPage() {
   return (
-    <div className="mx-auto max-w-6xl px-6 pb-24">
-      <Hero />
+    <div className="pb-24">
+      <div className="mx-auto max-w-6xl px-6">
+        <Hero />
+      </div>
 
+      <div className="mx-auto mt-12 max-w-6xl px-6 md:mt-16">
+        <HeroPreview />
+      </div>
+
+      <div className="mx-auto max-w-6xl px-6">
       <section className="mt-28 md:mt-32">
         <Pillar
           index="01"
@@ -41,6 +50,7 @@ export default function LandingPage() {
       <RegistryBand className="mt-28" />
 
       <Footer />
+      </div>
     </div>
   );
 }
@@ -49,32 +59,100 @@ export default function LandingPage() {
 
 function Hero() {
   return (
-    <section className="pt-16 md:pt-24">
-      <DocumentZeroByline />
+    <section className="pt-20 text-center md:pt-28">
+      <div className="flex justify-center">
+        <ProductPill />
+      </div>
 
-      <div className="mt-8 overflow-x-auto">
+      <h1 className="sr-only">doc0</h1>
+      <div className="mx-auto mt-10 flex justify-center overflow-x-auto">
         <TuiLogo />
       </div>
 
       <p
-        className="mt-10 max-w-2xl text-[1.18rem] leading-[1.55] tracking-[-0.005em]"
-        style={{ color: "var(--color-fg)" }}
+        className="mx-auto mt-7 max-w-2xl text-[1.05rem] leading-[1.55] tracking-[-0.005em] md:text-[1.18rem]"
+        style={{ color: "var(--color-fg-muted)" }}
       >
         A terminal-native documentation runtime. Browse any framework&rsquo;s
-        docs in a <span style={{ color: "var(--color-accent)" }}>TUI</span>,
-        expose the same cache to your agent over{" "}
-        <span style={{ color: "var(--color-accent)" }}>MCP</span>, and keep
-        everything{" "}
-        <span style={{ color: "var(--color-accent)" }}>local</span>. One
-        config file. One cache. Zero servers.
+        docs in a <span style={{ color: "var(--color-fg)" }}>TUI</span>, expose
+        the same cache to your agent over{" "}
+        <span style={{ color: "var(--color-fg)" }}>MCP</span>, and keep
+        everything <span style={{ color: "var(--color-fg)" }}>local</span>.
+        One config file. One cache. Zero servers.
       </p>
 
-      <div className="mt-9 flex flex-wrap items-center gap-3">
-        <InstallBar />
-        <PrimaryCta>Read the docs</PrimaryCta>
-        <GhostCta href="https://github.com/doc0team/d0">View on GitHub</GhostCta>
+      <div className="mx-auto mt-10 flex justify-center px-1">
+        <InstallHeroBar />
       </div>
+
+      <p className="mt-5 text-center text-[14px]" style={{ color: "var(--color-fg-subtle)" }}>
+        <Link
+          href="/docs"
+          className="underline decoration-[color-mix(in_srgb,var(--color-fg-subtle)_45%,transparent)] underline-offset-[5px] transition-colors hover:text-[var(--color-fg-muted)]"
+        >
+          Or read the documentation
+        </Link>
+        <span className="mx-2 opacity-40" aria-hidden>
+          ·
+        </span>
+        <a
+          href="https://github.com/doc0team/d0"
+          target="_blank"
+          rel="noreferrer"
+          className="underline decoration-[color-mix(in_srgb,var(--color-fg-subtle)_45%,transparent)] underline-offset-[5px] transition-colors hover:text-[var(--color-fg-muted)]"
+        >
+          View on GitHub
+        </a>
+      </p>
     </section>
+  );
+}
+
+/** Small pill linking to document0.com. */
+function ProductPill() {
+  return (
+    <Link
+      href="https://document0.com"
+      target="_blank"
+      rel="noreferrer"
+      className="product-pill"
+      aria-label="A document0 product"
+    >
+      <DocumentZeroMark size={12} className="opacity-80" />
+      <span className="product-pill-text">A document0 product</span>
+    </Link>
+  );
+}
+
+/* ─── HERO PREVIEW — Claude Code style: mac window on a painted backdrop ── */
+
+function HeroPreview() {
+  return (
+    <div className="hero-preview">
+      <div className="hero-preview-inner">
+        <div className="mac-window">
+          <div className="mac-titlebar">
+            <span className="mac-dots" aria-hidden>
+              <span className="mac-dot mac-dot-red" />
+              <span className="mac-dot mac-dot-yellow" />
+              <span className="mac-dot mac-dot-green" />
+            </span>
+            <span className="mac-title">doc0 — zsh</span>
+            <span className="mac-trailing" aria-hidden />
+          </div>
+          <div className="mac-body">
+            <Image
+              src="/tui.png"
+              alt="The doc0 TUI — a terminal showing the ASCII 'docs' logo above a list of popular documentation sites"
+              width={2048}
+              height={1280}
+              priority
+              className="mac-body-img"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -374,50 +452,6 @@ function ConfigCard() {
 }
 
 /* ─── SHARED PRIMITIVES ─────────────────────────────────────────────────── */
-
-function InstallBar() {
-  return (
-    <div
-      className="inline-flex items-center gap-3 rounded-md px-4 py-2.5 font-mono text-[14.5px]"
-      style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-      }}
-    >
-      <span style={{ color: "var(--color-fg-subtle)" }}>$</span>
-      <span style={{ color: "var(--color-fg)" }}>npm i -g doc0</span>
-    </div>
-  );
-}
-
-function PrimaryCta({ children, href = "/docs" }: { children: React.ReactNode; href?: string }) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-1.5 rounded-md px-4 py-2.5 text-sm font-medium transition-transform hover:scale-[1.01]"
-      style={{ background: "var(--color-accent)", color: "var(--color-accent-fg)" }}
-    >
-      {children}
-      <span aria-hidden>→</span>
-    </Link>
-  );
-}
-
-function GhostCta({ children, href }: { children: React.ReactNode; href: string }) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-1.5 rounded-md px-4 py-2.5 text-sm font-medium transition-colors"
-      style={{
-        border: "1px solid var(--color-border)",
-        color: "var(--color-fg)",
-        background: "transparent",
-      }}
-    >
-      {children}
-    </Link>
-  );
-}
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
