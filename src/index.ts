@@ -264,15 +264,18 @@ async function main(): Promise<void> {
       await cmdImport(source, opts);
     });
 
-  const mcpCmd = program.command("mcp").description("Model Context Protocol — stdio server or Cursor setup");
+  const mcpCmd = program.command("mcp").description("Model Context Protocol — stdio server or client setup");
   mcpCmd
     .command("install")
-    .description("add doc0 as an MCP server to a supported client (Cursor today; more soon)")
+    .description("add doc0 as an MCP server to a supported client (Cursor, Claude Code, Windsurf, Antigravity, Zed, OpenCode)")
     .option("--cursor", "install into Cursor (writes mcp.json)")
-    .option("--claude-code", "install into Claude Code (coming soon)")
-    .option("--windsurf", "install into Windsurf (coming soon)")
-    .option("--list", "print the list of supported/planned clients and exit")
-    .option("--project", "for Cursor: write ./.cursor/mcp.json in the current directory instead of ~/.cursor/mcp.json")
+    .option("--claude-code", "install into Claude Code (writes ~/.claude.json, or .mcp.json with --project)")
+    .option("--windsurf", "install into Windsurf (writes mcp_config.json)")
+    .option("--antigravity", "install into Antigravity (writes ~/.gemini/antigravity/mcp_config.json)")
+    .option("--zed", "install into Zed (writes settings.json, or .zed/settings.json with --project)")
+    .option("--opencode", "install into OpenCode (writes opencode.json)")
+    .option("--list", "print the list of supported clients and exit")
+    .option("--project", "write project-local config (Cursor: .cursor/mcp.json; Claude Code: .mcp.json; Zed: .zed/settings.json; OpenCode: ./opencode.json)")
     .option("--dry-run", "print merged config without writing")
     .option("--yes", "replace an existing mcpServers.d0 entry without prompting")
     .action(
@@ -280,6 +283,9 @@ async function main(): Promise<void> {
         cursor?: boolean;
         claudeCode?: boolean;
         windsurf?: boolean;
+        antigravity?: boolean;
+        zed?: boolean;
+        opencode?: boolean;
         list?: boolean;
         project?: boolean;
         dryRun?: boolean;
@@ -289,7 +295,10 @@ async function main(): Promise<void> {
           opts.cursor ? "cursor" : null,
           opts.claudeCode ? "claude-code" : null,
           opts.windsurf ? "windsurf" : null,
-        ].filter((c): c is "cursor" | "claude-code" | "windsurf" => c !== null);
+          opts.antigravity ? "antigravity" : null,
+          opts.zed ? "zed" : null,
+          opts.opencode ? "opencode" : null,
+        ].filter((c): c is string => c !== null);
         if (flagged.length > 1) {
           console.error(
             `doc0 mcp install: pass only one client flag at a time (got: ${flagged.map((f) => `--${f}`).join(", ")}).`,
@@ -298,7 +307,7 @@ async function main(): Promise<void> {
           return;
         }
         await cmdMcpInstall({
-          client: flagged[0],
+          client: flagged[0] as any,
           list: opts.list,
           project: opts.project,
           dryRun: opts.dryRun,
