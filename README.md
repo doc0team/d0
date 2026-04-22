@@ -74,7 +74,7 @@ doc0 ls --json
 | `doc0 doctor` | Verify every registry entry: bundles exist, URLs serve `/llms.txt` / `/llms-full.txt` / sitemap. |
 | `doc0 suggest [dir]` | Scan `./package.json` deps and report which have doc0 registry coverage. |
 | `doc0 mcp` | MCP server on stdio. `--installed-only` hides built-in URL sources; only user-added entries + installed bundles are exposed. |
-| `doc0 mcp install` | Add doc0 as an MCP server to a supported client. Interactive picker by default; use `--cursor` (or future `--claude-code` / `--windsurf`) to skip the prompt. Merges into the target `mcp.json`, backing up any existing file. |
+| `doc0 mcp install` | Add doc0 as an MCP server to a supported client. Interactive picker by default; use `--cursor` / `--claude-code` / `--windsurf` to skip the prompt. Merges into the target config, backing up any existing file. |
 
 Flags: `--json` and `--raw` where documented; without a TTY, `read` defaults to raw markdown and `search`/`ls` default to JSON when `outputFormat` is `auto` in `~/.d0rc`.
 
@@ -90,18 +90,54 @@ Run the server on stdio:
 doc0 mcp
 ```
 
-**Cursor:** merge doc0 into Cursor’s MCP config (global `~/.cursor/mcp.json` by default):
+**Cursor:** merge doc0 into Cursor's MCP config (global `~/.cursor/mcp.json` by default):
 
 ```bash
-doc0 mcp install                   # interactive picker: Cursor now, Claude Code + Windsurf soon
-doc0 mcp install --cursor          # skip the prompt, install into ~/.cursor/mcp.json
-doc0 mcp install --cursor --yes    # replace existing mcpServers.d0
+doc0 mcp install --cursor            # install into ~/.cursor/mcp.json
 doc0 mcp install --cursor --project  # use ./.cursor/mcp.json in this repo
+doc0 mcp install --cursor --yes      # replace existing mcpServers.d0
 doc0 mcp install --cursor --dry-run  # print JSON only
-doc0 mcp install --list            # show supported + planned clients
 ```
 
-Restart Cursor after install. See [Cursor MCP docs](https://cursor.com/docs/mcp). The entry is registered under `mcpServers.d0` (historical key — kept stable across the `d0` → `doc0` rename).
+**Claude Code:** merge doc0 into Claude Code's MCP config:
+
+```bash
+doc0 mcp install --claude-code            # install into ~/.claude.json (user scope)
+doc0 mcp install --claude-code --project  # install into ./.mcp.json (project scope, team-shareable)
+```
+
+**Windsurf:** merge doc0 into Windsurf's MCP config:
+
+```bash
+doc0 mcp install --windsurf          # install into ~/.codeium/windsurf/mcp_config.json
+```
+
+**Antigravity:** merge doc0 into Antigravity's MCP config:
+
+```bash
+doc0 mcp install --antigravity       # install into ~/.gemini/antigravity/mcp_config.json
+```
+
+**Zed:** merge doc0 into Zed's settings (uses `context_servers` key):
+
+```bash
+doc0 mcp install --zed               # install into ~/.config/zed/settings.json
+doc0 mcp install --zed --project     # install into ./.zed/settings.json
+```
+
+**OpenCode:** merge doc0 into OpenCode's config (uses `mcp` key):
+
+```bash
+doc0 mcp install --opencode          # install into ~/.config/opencode/opencode.json
+doc0 mcp install --opencode --project  # install into ./opencode.json
+```
+
+```bash
+doc0 mcp install                     # interactive picker
+doc0 mcp install --list              # show supported clients
+```
+
+Restart the client after install. The entry is registered under `mcpServers.d0` (or `context_servers.d0` for Zed, `mcp.d0` for OpenCode).
 
 ### Tools
 
