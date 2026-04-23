@@ -18,6 +18,19 @@ export type IngestUrlOptions = ListDocUrlsOptions & {
   maxPages?: number;
 };
 
+export interface IngestUrlFailure {
+  url: string;
+  error: string;
+}
+
+export interface IngestUrlResult {
+  manifest: DocStoreManifest;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  failures: IngestUrlFailure[];
+}
+
 function envPositiveInt(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
@@ -89,7 +102,7 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (it
   return out;
 }
 
-export async function ingestUrlToDocStore(baseUrl: string, opts?: IngestUrlOptions): Promise<DocStoreManifest> {
+export async function ingestUrlToDocStoreDetailed(baseUrl: string, opts?: IngestUrlOptions): Promise<IngestUrlResult> {
   const configuredMax = opts?.maxPages !== undefined ? opts.maxPages : DEFAULT_INGEST_MAX_PAGES;
   const origin = resolveBrowseBaseUrl(baseUrl).origin;
   const urls = await listDocUrls(baseUrl, opts);
@@ -108,20 +121,31 @@ export async function ingestUrlToDocStore(baseUrl: string, opts?: IngestUrlOptio
     configuredMax <= 0 ? canonicalUrlsSorted.length : Math.min(configuredMax, canonicalUrlsSorted.length);
   const limited = canonicalUrlsSorted.slice(0, maxPages);
 
-  await mapWithConcurrency(limited, INGEST_FETCH_CONCURRENCY, async (url) => {
-    const page = await readDocUrl(url);
-    const norm = normalizeDocMarkdown(page.markdown);
-    const pathKey = pathKeyForPageUrl(page.url);
-    const id = pageIdFromUrl(page.url);
-    const relPath = `pages/${id}.md`;
-    await writeDocStorePage(storeId, relPath, norm.markdown);
-    pages[pathKey] = {
-      path: pathKey,
-      title: page.title,
-      url: page.url,
-      relPath,
-      codeBlocks: norm.codeBlocks.map((b) => ({ id: b.id, lang: b.lang, code: b.code })),
-    };
+  const outcomes = await mapWithConcurrency(limited, INGEST_FETCH_CONCURRENCY, async (url) => {
+    try {
+      const page = await readDocUrl(url);
+      const norm = normalizeDocMarkdown(page.markdown);
+      const pathKey = pathKeyForPageUrl(page.url);
+      const id = pageIdFromUrl(page.url);
+      const relPath = `pages/${id}.md`;
+      await writeDocStorePage(storeId, relPath, norm.markdown);
+      pages[pathKey] = {
+        path: pathKey,
+        title: page.title,
+        url: page.url,
+        relPath,
+        codeBlocks: norm.codeBlocks.map((b) => ({ id: b.id, lang: b.lang, code: b.code })),
+      };
+      return { ok: true as const };
+    } catch (e) {
+      return {
+        ok: false as const,
+        failure: {
+          url,
+          error: e instanceof Error ? e.message : String(e),
+        },
+      };
+    }
   });
 
   const trie = buildPathTrie(limited, origin);
@@ -144,7 +168,21 @@ export async function ingestUrlToDocStore(baseUrl: string, opts?: IngestUrlOptio
     pages,
   };
   await writeDocStoreManifest(manifest);
-  return manifest;
+  const failures = outcomes
+    .filter((o): o is { ok: false; failure: IngestUrlFailure } => o.ok === false)
+    .map((o) => o.failure);
+  return {
+    manifest,
+    attempted: limited.length,
+    succeeded: Object.keys(pages).length,
+    failed: failures.length,
+    failures,
+  };
+}
+
+export async function ingestUrlToDocStore(baseUrl: string, opts?: IngestUrlOptions): Promise<DocStoreManifest> {
+  const result = await ingestUrlToDocStoreDetailed(baseUrl, opts);
+  return result.manifest;
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { D0Config } from "../core/config.js";
 import { ingestBundleToDocStore } from "../core/ingest-bundle.js";
-import { ingestUrlToDocStore, type IngestUrlOptions } from "../core/ingest-url.js";
+import { ingestUrlToDocStoreDetailed, type IngestUrlOptions } from "../core/ingest-url.js";
 import { findInstalledBundle } from "../core/storage.js";
 import { isUrlLike } from "../core/web-docs.js";
 
@@ -19,13 +19,33 @@ export async function cmdIngestUrl(
     maxPages: opts.maxPages,
   };
   try {
-    const manifest = await ingestUrlToDocStore(url, ingestOpts);
+    const result = await ingestUrlToDocStoreDetailed(url, ingestOpts);
+    const manifest = result.manifest;
     if (opts.json) {
-      console.log(JSON.stringify({ storeId: manifest.storeId, pages: Object.keys(manifest.pages).length }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            storeId: manifest.storeId,
+            pages: Object.keys(manifest.pages).length,
+            attempted: result.attempted,
+            succeeded: result.succeeded,
+            failed: result.failed,
+            failures_sample: result.failures.slice(0, 20),
+          },
+          null,
+          2,
+        ),
+      );
       return;
     }
     console.log(`Ingested URL docs into store: ${manifest.storeId}`);
-    console.log(`Pages: ${Object.keys(manifest.pages).length}`);
+    console.log(`Pages: ${Object.keys(manifest.pages).length} (attempted ${result.attempted}, failed ${result.failed})`);
+    if (result.failed > 0) {
+      for (const f of result.failures.slice(0, 10)) {
+        console.warn(`Skipped: ${f.url} (${f.error})`);
+      }
+      if (result.failed > 10) console.warn(`... and ${result.failed - 10} more fetch failures`);
+    }
     console.log(`Manifest: ~/.d0/docs-store/${manifest.storeId}/manifest.json`);
   } catch (e) {
     console.error(`doc0 ingest url: ${e instanceof Error ? e.message : String(e)}`);
