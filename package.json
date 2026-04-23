@@ -1,6 +1,6 @@
 {
   "name": "doczero",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Terminal-native documentation platform — browse docs in the CLI; same commands for humans and agents.",
   "type": "module",
   "main": "dist/index.js",
