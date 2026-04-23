@@ -1,9 +1,16 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { RegistryEntry } from "./types";
+import Link from "next/link";
+import type { RegistryBuildStatus, RegistryEntry } from "./types";
 
-export function RegistryExplorer({ entries }: { entries: RegistryEntry[] }) {
+export function RegistryExplorer({
+  entries,
+  statusById,
+}: {
+  entries: RegistryEntry[];
+  statusById: Record<string, RegistryBuildStatus>;
+}) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
 
@@ -92,7 +99,7 @@ export function RegistryExplorer({ entries }: { entries: RegistryEntry[] }) {
         <ul className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {filtered.map((entry) => (
             <li key={entry.id}>
-              <EntryCard entry={entry} />
+              <EntryCard entry={entry} status={statusById[entry.id]} />
             </li>
           ))}
         </ul>
@@ -105,7 +112,13 @@ function browseCommand(id: string): string {
   return `doc0 browse ${id}`;
 }
 
-function EntryCard({ entry }: { entry: RegistryEntry }) {
+function statusLabel(status?: RegistryBuildStatus): { text: string; color: string } {
+  if (!status || status.state === "missing") return { text: "no build", color: "var(--color-fg-subtle)" };
+  if (status.state === "stale") return { text: "stale", color: "#d4a017" };
+  return { text: "healthy", color: "#2f9e44" };
+}
+
+function EntryCard({ entry, status }: { entry: RegistryEntry; status?: RegistryBuildStatus }) {
   const cmd = browseCommand(entry.id);
   const host = (() => {
     try {
@@ -114,6 +127,7 @@ function EntryCard({ entry }: { entry: RegistryEntry }) {
       return entry.source;
     }
   })();
+  const statusView = statusLabel(status);
 
   return (
     <article
@@ -121,13 +135,14 @@ function EntryCard({ entry }: { entry: RegistryEntry }) {
     >
       <div className="flex-1 px-4 pt-3.5 pb-3">
         <div className="flex items-baseline justify-between gap-2">
-          <h2
-            className="min-w-0 truncate font-mono text-[14px] font-semibold leading-none tracking-[-0.01em]"
-            style={{ color: "var(--color-fg)" }}
-            title={entry.id}
-          >
-            {entry.id}
-          </h2>
+          <Link href={`/registry/${entry.id}`} className="min-w-0 truncate" title={entry.id}>
+            <h2
+              className="min-w-0 truncate font-mono text-[14px] font-semibold leading-none tracking-[-0.01em]"
+              style={{ color: "var(--color-fg)" }}
+            >
+              {entry.id}
+            </h2>
+          </Link>
           <a
             href={entry.source}
             target="_blank"
@@ -145,6 +160,10 @@ function EntryCard({ entry }: { entry: RegistryEntry }) {
           title={entry.description ?? undefined}
         >
           {entry.description ?? ""}
+        </p>
+        <p className="mt-2 text-[11px]" style={{ color: statusView.color }}>
+          build: {statusView.text}
+          {status?.latestVersion ? ` · v${status.latestVersion}` : ""}
         </p>
       </div>
 

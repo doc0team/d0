@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { RegistryExplorer } from "./registry-explorer";
-import type { RegistryDocument, RegistryEntry } from "./types";
+import type { RegistryBuildStatus, RegistryDocument, RegistryEntry } from "./types";
+import { SourceProbeForm } from "./source-probe-form";
+import { fetchHostedIndex } from "@/lib/hosted-bundles";
 
 /**
  * Matches the CLI's 24h community-registry cache cadence. If you bump this, also consider
@@ -55,13 +57,30 @@ async function fetchRegistry(): Promise<FetchResult> {
 
 export default async function RegistryPage() {
   const result = await fetchRegistry();
+  const hosted = await fetchHostedIndex();
+  const statusById: Record<string, RegistryBuildStatus> = {};
+  if (hosted) {
+    const now = Date.now();
+    for (const [id, entry] of Object.entries(hosted.entries)) {
+      const v = entry.latest;
+      const latest = v ? entry.versions[v] : undefined;
+      const builtAt = latest?.builtAt;
+      const age = builtAt ? now - Date.parse(builtAt) : Number.POSITIVE_INFINITY;
+      statusById[id] = {
+        latestVersion: v,
+        builtAt,
+        pages: latest?.pages,
+        state: !latest ? "missing" : age <= 48 * 60 * 60 * 1000 ? "healthy" : "stale",
+      };
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 pb-24 pt-16 md:pt-20">
       <Header count={result.ok ? result.entries.length : null} />
 
       {result.ok ? (
-        <RegistryExplorer entries={result.entries} />
+        <RegistryExplorer entries={result.entries} statusById={statusById} />
       ) : (
         <ErrorState message={result.error} />
       )}
@@ -229,6 +248,7 @@ function ContributeBand({ className = "" }: { className?: string }) {
               Contribution guide
             </a>
           </div>
+          <SourceProbeForm />
           <ol
             className="mt-5 space-y-1 text-[12.5px]"
             style={{ color: "var(--color-fg-subtle)" }}

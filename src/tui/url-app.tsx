@@ -30,6 +30,7 @@ import {
   flattenPathTrie,
   formatUrlNavRowText,
 } from "./url-nav-tree.js";
+import { copyToClipboard } from "../utils/clipboard.js";
 
 type ViewMode = "toc" | "read" | "searchPrompt" | "searchResults";
 type IndexState = "loading" | "ready" | "error";
@@ -703,6 +704,21 @@ function UrlBrowseApp({
     }
 
     if (mode === "read") {
+      if (keyMatch(input, undefined, kb.copy_page_url)) {
+        if (!readUrl) return;
+        void copyToClipboard(readUrl).then((ok) => {
+          if (ok) console.log(`Copied: ${readUrl}`);
+        });
+        return;
+      }
+      if (keyMatch(input, undefined, kb.copy_page_cli)) {
+        if (!readUrl) return;
+        const cmd = `doc0 read ${readUrl}`;
+        void copyToClipboard(cmd).then((ok) => {
+          if (ok) console.log(`Copied: ${cmd}`);
+        });
+        return;
+      }
       if (input === kb.scroll_down || key.downArrow) {
         setScroll((s) => s + 1);
         return;

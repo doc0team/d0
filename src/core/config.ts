@@ -13,6 +13,8 @@ export interface Keybindings {
   quit: string;
   top: string;
   bottom: string;
+  copy_page_url: string;
+  copy_page_cli: string;
 }
 
 export type Theme = "dark" | "light";
@@ -26,6 +28,7 @@ export type OutputFormat = "auto" | "json" | "raw" | "rich";
  */
 export const DEFAULT_COMMUNITY_REGISTRY_URL =
   "https://raw.githubusercontent.com/doc0team/d0-registry/main/registry.json";
+export const DEFAULT_HOSTED_INDEX_URL = "https://doc0.sh/api/bundles";
 
 const DISABLE_TOKENS = new Set(["", "false", "off", "disabled", "null", "none", "0"]);
 
@@ -44,6 +47,8 @@ export interface D0Config {
    * Unset = no community registry is ever contacted.
    */
   registryUrl?: string;
+  hostedIndexUrl?: string;
+  autoInstallHosted?: boolean;
 }
 
 const defaultKeybindings: Keybindings = {
@@ -55,6 +60,8 @@ const defaultKeybindings: Keybindings = {
   quit: "q",
   top: "g",
   bottom: "G",
+  copy_page_url: "y",
+  copy_page_cli: "Y",
 };
 
 export const defaultConfig: D0Config = {
@@ -62,6 +69,7 @@ export const defaultConfig: D0Config = {
   outputFormat: "auto",
   keybindings: { ...defaultKeybindings },
   defaultBundles: [],
+  autoInstallHosted: true,
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -78,10 +86,12 @@ export function configPath(): string {
 
 function emptyConfig(): D0Config {
   const registryUrl = resolveRegistryUrl(undefined);
+  const hostedIndexUrl = resolveHostedIndexUrl(undefined);
   return {
     ...defaultConfig,
     keybindings: { ...defaultKeybindings },
     ...(registryUrl ? { registryUrl } : {}),
+    ...(hostedIndexUrl ? { hostedIndexUrl } : {}),
   };
 }
 
@@ -129,6 +139,10 @@ export async function loadConfig(): Promise<D0Config> {
       quit: typeof data.keybindings.quit === "string" ? data.keybindings.quit : undefined,
       top: typeof data.keybindings.top === "string" ? data.keybindings.top : undefined,
       bottom: typeof data.keybindings.bottom === "string" ? data.keybindings.bottom : undefined,
+      copy_page_url:
+        typeof data.keybindings.copy_page_url === "string" ? data.keybindings.copy_page_url : undefined,
+      copy_page_cli:
+        typeof data.keybindings.copy_page_cli === "string" ? data.keybindings.copy_page_cli : undefined,
     });
   }
 
@@ -137,13 +151,17 @@ export async function loadConfig(): Promise<D0Config> {
     : [];
 
   const registryUrl = resolveRegistryUrl(data.registryUrl);
+  const hostedIndexUrl = resolveHostedIndexUrl(data.hostedIndexUrl);
+  const autoInstallHosted = typeof data.autoInstallHosted === "boolean" ? data.autoInstallHosted : true;
 
   return {
     theme,
     outputFormat,
     keybindings,
     defaultBundles,
+    autoInstallHosted,
     ...(registryUrl ? { registryUrl } : {}),
+    ...(hostedIndexUrl ? { hostedIndexUrl } : {}),
   };
 }
 
@@ -168,4 +186,20 @@ function resolveRegistryUrl(configValue: unknown): string | undefined {
     if (/^https?:\/\//i.test(s)) return s;
   }
   return DEFAULT_COMMUNITY_REGISTRY_URL;
+}
+
+function resolveHostedIndexUrl(configValue: unknown): string | undefined {
+  const envRaw = process.env.D0_HOSTED_INDEX_URL;
+  if (envRaw !== undefined) {
+    const env = envRaw.trim();
+    if (isDisableToken(env)) return undefined;
+    if (/^https?:\/\//i.test(env)) return env.replace(/\/+$/, "");
+  }
+  if (configValue === false || configValue === null) return undefined;
+  if (typeof configValue === "string") {
+    const s = configValue.trim();
+    if (isDisableToken(s)) return undefined;
+    if (/^https?:\/\//i.test(s)) return s.replace(/\/+$/, "");
+  }
+  return DEFAULT_HOSTED_INDEX_URL;
 }

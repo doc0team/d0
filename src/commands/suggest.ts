@@ -57,11 +57,11 @@ function matchEntry(entries: DocsRegistryEntry[], dep: DepEntry): DocsRegistryEn
   return null;
 }
 
-export async function cmdSuggest(dir: string, opts: { json?: boolean }): Promise<void> {
+export async function cmdScan(dir: string, opts: { json?: boolean }): Promise<void> {
   const deps = await readProjectDeps(dir);
   if ("error" in deps) {
     if (opts.json) console.log(JSON.stringify({ error: deps.error }));
-    else console.error(`doc0 suggest: ${deps.error}`);
+    else console.error(`doc0 scan: ${deps.error}`);
     process.exitCode = 1;
     return;
   }
@@ -97,7 +97,7 @@ export async function cmdSuggest(dir: string, opts: { json?: boolean }): Promise
     return;
   }
 
-  console.log(`doc0 suggest: scanned ${deps.length} deps in ${path.resolve(dir, "package.json")}\n`);
+  console.log(`doc0 scan: scanned ${deps.length} deps in ${path.resolve(dir, "package.json")}\n`);
   if (matches.length === 0) {
     console.log("No registry coverage for any dependency.");
   } else {
@@ -120,3 +120,6 @@ export async function cmdSuggest(dir: string, opts: { json?: boolean }): Promise
     console.log("\nTip: add your own entry to ~/.d0/docs-registry.json to cover these.");
   }
 }
+
+/** Backward-compatible alias; prefer `cmdScan` + `doc0 scan`. */
+export const cmdSuggest = cmdScan;

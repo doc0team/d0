@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { communityRegistryCachePath, d0Home, docsRegistryPath, listInstalled } from "./storage.js";
 import { DEFAULT_COMMUNITY_REGISTRY_URL, loadConfig, type D0Config } from "./config.js";
+import { resolveHostedBundle } from "./hosted-client.js";
 
 export class RegistryError extends Error {
   constructor(message: string) {
@@ -16,6 +17,7 @@ export interface RegistryBundleMeta {
   name: string;
   version: string;
   tarballUrl: string;
+  sha256?: string;
 }
 
 export type DocsSourceType = "bundle" | "url";
@@ -405,14 +407,21 @@ export async function resolveDocsEntryWithFallback(query: string): Promise<DocsR
   };
 }
 
-/**
- * Placeholder — doc0 does not run a bundle download service. Use `doc0 add --local <path>` for now.
- */
 export async function fetchBundleMeta(
-  _name: string,
-  _version?: string,
+  name: string,
+  version?: string,
 ): Promise<RegistryBundleMeta> {
-  throw new RegistryError(
-    "Registry downloads are not available. Use: doc0 add --local <path-to-bundle-dir>",
-  );
+  const config = await loadConfig();
+  const meta = await resolveHostedBundle(name, version, config);
+  if (!meta) {
+    throw new RegistryError(
+      `no hosted bundle found for "${name}". Try a local install with: doc0 add --local <path-to-bundle-dir>`,
+    );
+  }
+  return {
+    name: `@doc0/${meta.id}`,
+    version: meta.version,
+    tarballUrl: meta.url,
+    sha256: meta.sha,
+  };
 }

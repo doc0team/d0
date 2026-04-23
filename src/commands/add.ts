@@ -1,11 +1,12 @@
 import path from "node:path";
 import os from "node:os";
-import { stat, readFile, readdir, mkdir, copyFile, writeFile, rm } from "node:fs/promises";
+import { stat, readFile, readdir, mkdir, copyFile, writeFile, rm, mkdtemp } from "node:fs/promises";
 import { loadBundle, BundleError } from "../core/bundle.js";
 import { ManifestError, type D0Manifest } from "../core/manifest.js";
 import { writeNamedShim } from "../core/named-cli.js";
 import { fetchBundleMeta, RegistryError } from "../core/registry-client.js";
 import { installBundleFromPath, ensureD0Dirs } from "../core/storage.js";
+import { downloadHostedBundle } from "../core/hosted-client.js";
 import type { D0Config } from "../core/config.js";
 
 const IGNORE_DIRS = new Set([
@@ -150,6 +151,26 @@ async function installFolder(abs: string, explicitName: string | undefined): Pro
   }
 }
 
+async function installHostedBundle(target: string): Promise<void> {
+  const meta = await fetchBundleMeta(target);
+  if (!meta.sha256) {
+    throw new Error(`hosted bundle metadata missing checksum for ${target}`);
+  }
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "d0-hosted-add-"));
+  try {
+    await downloadHostedBundle(
+      { id: target.toLowerCase(), version: meta.version, url: meta.tarballUrl, sha: meta.sha256 },
+      tmp,
+    );
+    const loaded = await loadBundle(tmp);
+    await installBundleFromPath(tmp, loaded.manifest);
+    if (loaded.manifest.bin) await writeNamedShim(loaded.manifest);
+    console.log(`Installed ${loaded.manifest.name}@${loaded.manifest.version} (hosted)`);
+  } finally {
+    await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export async function cmdAdd(
   bundleArg: string | undefined,
   opts: { local?: string; name?: string },
@@ -198,8 +219,7 @@ export async function cmdAdd(
   }
 
   try {
-    const meta = await fetchBundleMeta(arg);
-    console.error(`Would install ${meta.name}@${meta.version} from ${meta.tarballUrl}`);
+    await installHostedBundle(arg);
   } catch (e) {
     if (e instanceof RegistryError) {
       console.error(`doc0 add: ${e.message}`);

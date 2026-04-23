@@ -41,7 +41,7 @@ doc0 @example/lib
 # TUI: j/k scroll, Enter open, / search, h back, l forward, q quit
 
 # See which of your project's deps have built-in docs coverage.
-doc0 suggest
+doc0 scan
 
 # Verify every registry entry (bundles installed, URLs serve llms.txt / llms-full.txt / sitemap).
 doc0 doctor
@@ -52,6 +52,14 @@ doc0 ls --json
 ```
 
 ## Commands
+
+For most users, three commands are enough:
+
+- `doc0 <id>` — open docs in the TUI (`doc0 stripe`)
+- `doc0 mcp install` — wire doc0 into your agent client
+- `doc0 add ./my-docs` — install local markdown as a bundle
+
+Everything else is available under `doc0 contrib` for maintainer/power-user workflows.
 
 | Command | Description |
 |--------|-------------|
@@ -65,16 +73,12 @@ doc0 ls --json
 | `doc0 <bundle> read <slug>` | Read one page |
 | `doc0 <bundle> search <query>` | Full-text search |
 | `doc0 browse-opentui` | Experimental secondary OpenTUI launcher (Bun required) |
-| `doc0 init --name @scope/pkg [dir]` | Scaffold a new bundle |
-| `doc0 build [dir]` | Validate and write `dist/<name>-<ver>.d0.tgz` |
-| `doc0 import <src> --name @scope/pkg [--out dir]` | Import markdown tree or single file |
+| `doc0 scan [dir]` | Scan `./package.json` deps and report which have doc0 registry coverage |
+| `doc0 ask <id> <question...>` | Ask a question against a docs source; returns cited answer (`--json` for agents) |
 | `doc0 update [--check]` | Self-update the CLI from npm. `--check` reports without installing. |
-| `doc0 ingest url <url>` | Ingest discovered pages into `~/.d0/docs-store/<id>/` |
-| `doc0 ingest bundle <bundle>` | Ingest an installed bundle into the local docs store |
-| `doc0 doctor` | Verify every registry entry: bundles exist, URLs serve `/llms.txt` / `/llms-full.txt` / sitemap. |
-| `doc0 suggest [dir]` | Scan `./package.json` deps and report which have doc0 registry coverage. |
 | `doc0 mcp` | MCP server on stdio. `--installed-only` hides built-in URL sources; only user-added entries + installed bundles are exposed. |
 | `doc0 mcp install` | Add doc0 as an MCP server to a supported client. Interactive picker by default; use `--cursor` / `--claude-code` / `--windsurf` to skip the prompt. Merges into the target config, backing up any existing file. |
+| `doc0 contrib …` | Maintainer workflows: bundle build/import/init, ingest, doctor, registry sync |
 
 Flags: `--json` and `--raw` where documented; without a TTY, `read` defaults to raw markdown and `search`/`ls` default to JSON when `outputFormat` is `auto` in `~/.d0rc`.
 
@@ -149,8 +153,15 @@ Four tools, designed to minimize round-trips in an agent loop:
 | `read_docs(id, path?, full?)` | Read docs by registry id. No `path` → root tree; dir path → subtree; page URL/slug → page markdown. `full=true` → whole `/llms-full.txt` markdown; `full="heading substring"` → a single matching chunk. Pages are cached on first read. |
 | `grep_docs(id, query)` | Search within a source. Uses the local cache of pages you've read; for uncached URL docs falls back to bounded live search (cap via `D0_MCP_SEARCH_MAX_FETCH`). |
 | `list_docs()` | List all registry entries. |
+| `ask_docs(id, question)` | One-call Q&A with citations (uses your configured provider key). |
 
 **Tool-flow guidance for agents**
+
+Fast path when you just need an answer:
+
+1. `ask_docs("stripe", "how do I verify webhook signatures?")` — single call, answer + citations.
+
+Detailed path when you need full source context:
 
 1. `find_docs("stripe webhooks")` — one call returns the id, the root tree, and an `llms_full_available` flag.
 2. If `llms_full_available` is true: `read_docs("stripe", null, true)` returns the entire docs site in one HTTP hit, or `read_docs("stripe", null, "webhook")` returns just the matching section. This is the fast path for most modern doc sites.

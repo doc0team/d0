@@ -6,6 +6,13 @@ export type RegistryEntry = {
   description?: string;
 };
 
+export type RegistryBuildStatus = {
+  latestVersion?: string;
+  builtAt?: string;
+  pages?: number;
+  state: "healthy" | "stale" | "missing";
+};
+
 export type RegistryDocument = {
   version?: number;
   description?: string;
