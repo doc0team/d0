@@ -16,10 +16,14 @@ import { cmdMcpInstall } from "./commands/mcp-install.js";
 import { cmdBrowseOpenTui } from "./commands/opentui.js";
 import { cmdIngestBundle, cmdIngestUrl } from "./commands/ingest.js";
 import { cmdDoctor } from "./commands/doctor.js";
-import { cmdSuggest } from "./commands/suggest.js";
+import { cmdScan, cmdSuggest } from "./commands/suggest.js";
 import { cmdRegistrySync, cmdRegistryStatus } from "./commands/registry.js";
 import { cmdConfigEdit, cmdConfigPath, cmdConfigShow } from "./commands/config.js";
 import { isUrlLike } from "./core/web-docs.js";
+import { resolveDocsRegistryEntry } from "./core/registry-client.js";
+import { findInstalledBundle } from "./core/storage.js";
+import { cmdAsk } from "./commands/ask.js";
+import { cmdDiff } from "./commands/diff.js";
 
 const GLOBAL = new Set([
   "add",
@@ -36,7 +40,11 @@ const GLOBAL = new Set([
   "browse-opentui",
   "ingest",
   "doctor",
+  "scan",
   "suggest",
+  "ask",
+  "diff",
+  "contrib",
   "registry",
   "config",
   "help",
@@ -106,6 +114,15 @@ async function runBundleCommand(
 
   const { rest, json, raw, ink, external } = splitFlags(argv);
   const [sub, ...tail] = rest;
+  if (config.autoInstallHosted !== false) {
+    const hasInstalled = await findInstalledBundle(pkg);
+    if (!hasInstalled) {
+      const entry = await resolveDocsRegistryEntry(pkg);
+      if (entry?.sourceType === "url") {
+        await cmdAdd(pkg, {}, config).catch(() => undefined);
+      }
+    }
+  }
   if (!sub || sub.startsWith("-")) {
     await cmdBrowse(pkg, config, { ink, external });
     return;
@@ -264,15 +281,18 @@ async function main(): Promise<void> {
       await cmdImport(source, opts);
     });
 
-  const mcpCmd = program.command("mcp").description("Model Context Protocol — stdio server or Cursor setup");
+  const mcpCmd = program.command("mcp").description("Model Context Protocol — stdio server or client setup");
   mcpCmd
     .command("install")
-    .description("add doc0 as an MCP server to a supported client (Cursor today; more soon)")
+    .description("add doc0 as an MCP server to a supported client (Cursor, Claude Code, Windsurf, Antigravity, Zed, OpenCode)")
     .option("--cursor", "install into Cursor (writes mcp.json)")
-    .option("--claude-code", "install into Claude Code (coming soon)")
-    .option("--windsurf", "install into Windsurf (coming soon)")
-    .option("--list", "print the list of supported/planned clients and exit")
-    .option("--project", "for Cursor: write ./.cursor/mcp.json in the current directory instead of ~/.cursor/mcp.json")
+    .option("--claude-code", "install into Claude Code (writes ~/.claude.json, or .mcp.json with --project)")
+    .option("--windsurf", "install into Windsurf (writes mcp_config.json)")
+    .option("--antigravity", "install into Antigravity (writes ~/.gemini/antigravity/mcp_config.json)")
+    .option("--zed", "install into Zed (writes settings.json, or .zed/settings.json with --project)")
+    .option("--opencode", "install into OpenCode (writes opencode.json)")
+    .option("--list", "print the list of supported clients and exit")
+    .option("--project", "write project-local config (Cursor: .cursor/mcp.json; Claude Code: .mcp.json; Zed: .zed/settings.json; OpenCode: ./opencode.json)")
     .option("--dry-run", "print merged config without writing")
     .option("--yes", "replace an existing mcpServers.d0 entry without prompting")
     .action(
@@ -280,6 +300,9 @@ async function main(): Promise<void> {
         cursor?: boolean;
         claudeCode?: boolean;
         windsurf?: boolean;
+        antigravity?: boolean;
+        zed?: boolean;
+        opencode?: boolean;
         list?: boolean;
         project?: boolean;
         dryRun?: boolean;
@@ -289,7 +312,10 @@ async function main(): Promise<void> {
           opts.cursor ? "cursor" : null,
           opts.claudeCode ? "claude-code" : null,
           opts.windsurf ? "windsurf" : null,
-        ].filter((c): c is "cursor" | "claude-code" | "windsurf" => c !== null);
+          opts.antigravity ? "antigravity" : null,
+          opts.zed ? "zed" : null,
+          opts.opencode ? "opencode" : null,
+        ].filter((c): c is string => c !== null);
         if (flagged.length > 1) {
           console.error(
             `doc0 mcp install: pass only one client flag at a time (got: ${flagged.map((f) => `--${f}`).join(", ")}).`,
@@ -298,7 +324,7 @@ async function main(): Promise<void> {
           return;
         }
         await cmdMcpInstall({
-          client: flagged[0],
+          client: flagged[0] as any,
           list: opts.list,
           project: opts.project,
           dryRun: opts.dryRun,
@@ -347,12 +373,43 @@ async function main(): Promise<void> {
     });
 
   program
-    .command("suggest")
+    .command("scan")
     .description("scan ./package.json dependencies and report which ones have doc0 registry coverage")
     .argument("[dir]", "project directory containing package.json", ".")
     .option("--json", "JSON output")
     .action(async (dir: string, opts: { json?: boolean }) => {
+      await cmdScan(dir, opts);
+    });
+  program
+    .command("suggest")
+    .description("deprecated alias for `scan`")
+    .argument("[dir]", "project directory containing package.json", ".")
+    .option("--json", "JSON output")
+    .action(async (dir: string, opts: { json?: boolean }) => {
       await cmdSuggest(dir, opts);
+    });
+
+  program
+    .command("ask")
+    .description("answer a docs question with cited context from hosted/local sources")
+    .argument("<id>", "registry id or alias")
+    .argument("<question...>", "question text")
+    .option("--model <id>", "model preference hint (provider-dependent)")
+    .option("--json", "JSON output")
+    .action(async (id: string, question: string[], opts: { json?: boolean; model?: string }) => {
+      await cmdAsk(id, question, opts);
+    });
+
+  program
+    .command("diff")
+    .description("compare hosted docs snapshots across two versions")
+    .argument("<id>", "registry id")
+    .argument("<from>", "source version A")
+    .argument("<to>", "source version B")
+    .option("--drill <path>", "show one page in detail")
+    .option("--json", "JSON output")
+    .action(async (id: string, from: string, to: string, opts: { json?: boolean; drill?: string }) => {
+      await cmdDiff(id, from, to, opts, config);
     });
 
   const registryCmd = program
@@ -397,6 +454,72 @@ async function main(): Promise<void> {
     .option("--print", "create the file if missing, then just print the path (skip launching the editor)")
     .action(async (opts: { editor?: string; print?: boolean }) => {
       await cmdConfigEdit(opts);
+    });
+
+  const contrib = program
+    .command("contrib")
+    .description("maintainer workflows and power-user docs tooling");
+  contrib
+    .command("init")
+    .argument("[dir]", "directory to create bundle in", ".")
+    .requiredOption("--name <scoped>", 'scoped bundle name, e.g. "@acme/docs"')
+    .action(async (dir: string, opts: { name?: string }) => {
+      await cmdInit(dir, opts);
+    });
+  contrib
+    .command("build")
+    .argument("[dir]", "bundle root", ".")
+    .action(async (dir: string) => {
+      await cmdBuild(dir);
+    });
+  contrib
+    .command("import")
+    .argument("<source>", "markdown directory or single .md file")
+    .requiredOption("--name <scoped>", 'bundle name, e.g. "@acme/imported"')
+    .option("--out <dir>", "output directory for new bundle", "./imported-bundle")
+    .action(async (source: string, opts: { name?: string; out?: string }) => {
+      await cmdImport(source, opts);
+    });
+  const contribIngest = contrib
+    .command("ingest")
+    .description("ingest docs into local structured store (~/.d0/docs-store)");
+  contribIngest
+    .command("url")
+    .argument("<url>", "docs site/page URL")
+    .option("--external", "include off-site URLs from llms.txt when discovering pages")
+    .option(
+      "--max-pages <n>",
+      "max pages to fetch after discovery (0 = all discovered; default from D0_INGEST_MAX_PAGES or 50_000)",
+      (v) => Number(v),
+      50_000,
+    )
+    .option("--json", "JSON output")
+    .action(async (url: string, opts: { external?: boolean; maxPages?: number; json?: boolean }) => {
+      await cmdIngestUrl(url, opts, config);
+    });
+  contribIngest
+    .command("bundle")
+    .argument("<bundle>", "installed bundle name")
+    .option("--json", "JSON output")
+    .action(async (bundle: string, opts: { json?: boolean }) => {
+      await cmdIngestBundle(bundle, opts, config);
+    });
+  contrib
+    .command("doctor")
+    .description("verify every registry entry: bundles exist, URLs expose llms.txt/llms-full.txt/sitemap")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdDoctor(opts);
+    });
+  const contribRegistry = contrib
+    .command("registry")
+    .description("maintainer registry operations");
+  contribRegistry
+    .command("sync")
+    .description("force-refresh the community registry cache (~/.d0/community-registry.json)")
+    .option("--json", "JSON output")
+    .action(async (opts: { json?: boolean }) => {
+      await cmdRegistrySync(opts, config);
     });
 
   await program.parseAsync(argv, { from: "user" });

@@ -287,6 +287,8 @@ export function readModeKeyHints(kb: Keybindings): { k: string; d: string }[] {
     { k: kb.forward, d: "Forward" },
     { k: `${kb.scroll_up}/${kb.scroll_down}`, d: "Scroll" },
     { k: `${kb.top}/${kb.bottom}`, d: "Top/end" },
+    { k: kb.copy_page_url, d: "Copy URL" },
+    { k: kb.copy_page_cli, d: "Copy CLI" },
   ];
 }
 

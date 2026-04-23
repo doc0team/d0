@@ -1,6 +1,6 @@
 ---
 title: Using doc0 with an AI agent
-description: Wire doc0 into Claude Desktop, Cursor, or any MCP client in under a minute.
+description: Wire doc0 into Cursor, Claude Code, Windsurf, Antigravity, Zed, OpenCode, or any MCP client in under a minute.
 ---
 
 doc0 speaks [Model Context Protocol](https://modelcontextprotocol.io) over stdio. Four tools, all the agent needs.
@@ -20,31 +20,76 @@ Most agent flows are *one* `find_docs` call followed by *one* `read_docs` call. 
 
 ### Interactive picker
 
-Run `doc0 mcp install` with no flag for a prompt that lists every supported client. Cursor is available today; Claude Code and Windsurf are on the roadmap and show up marked `(coming soon)`.
+Run `doc0 mcp install` with no flag for a prompt that lists every supported client:
 
 ```bash
 doc0 mcp install
 # Pick an MCP client to install doc0 into:
 #   1) Cursor
-#   2) Claude Code  (coming soon)
-#   3) Windsurf  (coming soon)
+#   2) Claude Code
+#   3) Windsurf
+#   4) Antigravity
+#   5) Zed
+#   6) OpenCode
 #
-# Select 1-3 (default: 1):
+# Select 1-6 (default: 1):
 ```
 
 The picker only shows when stdin + stdout are a TTY. In scripts or CI, pass the client flag explicitly instead (see below).
 
-### Non-interactive (Cursor)
+### Cursor
 
 ```bash
 doc0 mcp install --cursor                  # merges into ~/.cursor/mcp.json
 doc0 mcp install --cursor --project        # writes ./.cursor/mcp.json instead
 doc0 mcp install --cursor --dry-run        # print the merged JSON; write nothing
 doc0 mcp install --cursor --yes            # replace an existing mcpServers.d0
-doc0 mcp install --list                    # print supported + planned clients, then exit
 ```
 
-> `--claude-code` and `--windsurf` are reserved for future releases and currently error out with `coming — not installable yet`. They're in the help output so you can see what's coming.
+### Claude Code
+
+```bash
+doc0 mcp install --claude-code             # merges into ~/.claude.json
+doc0 mcp install --claude-code --project   # writes ./.mcp.json (project scope, team-shareable)
+```
+
+### Windsurf
+
+```bash
+doc0 mcp install --windsurf                # merges into ~/.codeium/windsurf/mcp_config.json
+```
+
+### Antigravity
+
+```bash
+doc0 mcp install --antigravity             # merges into ~/.gemini/antigravity/mcp_config.json
+```
+
+### Zed
+
+Zed uses `context_servers` instead of `mcpServers`:
+
+```bash
+doc0 mcp install --zed                     # merges into ~/.config/zed/settings.json
+doc0 mcp install --zed --project           # writes ./.zed/settings.json
+```
+
+### OpenCode
+
+OpenCode uses a `mcp` key with `type: "local"` entries:
+
+```bash
+doc0 mcp install --opencode                # merges into ~/.config/opencode/opencode.json
+doc0 mcp install --opencode --project      # writes ./opencode.json
+```
+
+### Common flags
+
+```bash
+doc0 mcp install --list                    # print supported clients, then exit
+doc0 mcp install --dry-run                 # print merged JSON; write nothing (works with any client flag)
+doc0 mcp install --yes                     # replace an existing d0 entry without prompting
+```
 
 ### Manual (Claude Desktop)
 
@@ -60,10 +105,10 @@ doc0 mcp install --list                    # print supported + planned clients, 
 }
 ```
 
-### Manual (Cursor)
+### Manual (any mcpServers client)
 
 ```jsonc
-// ~/.cursor/mcp.json
+// Cursor, Claude Code, Windsurf, Antigravity — all use this shape
 {
   "mcpServers": {
     "d0": { "command": "doc0", "args": ["mcp"] }

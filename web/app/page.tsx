@@ -31,7 +31,7 @@ export default function LandingPage() {
           index="02"
           label="mcp"
           title="Your agent runs the same CLI — over MCP."
-          body="`doc0 mcp` is a stdio MCP server. Four tools: find_docs, read_docs, grep_docs, list_docs. Most agent flows are a single find + single read. `doc0 mcp install --cursor` merges doc0 into `~/.cursor/mcp.json` in one command (Claude Code + Windsurf support coming)."
+          body="`doc0 mcp` is a stdio MCP server. Four tools: find_docs, read_docs, grep_docs, list_docs. Most agent flows are a single find + single read. `doc0 mcp install` sets up any of six clients in one command — Cursor, Claude Code, Windsurf, Antigravity, Zed, and OpenCode."
           demo={<AiChatFrame />}
           reversed
         />

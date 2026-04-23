@@ -23,6 +23,7 @@ import {
   readModeKeyHints,
   searchPromptKeyHints,
 } from "./panels.js";
+import { copyToClipboard } from "../utils/clipboard.js";
 
 type ViewMode = "toc" | "read" | "searchPrompt" | "searchResults";
 type Phase = "home" | "app";
@@ -38,6 +39,12 @@ function keyMatch(input: string, keyName: string | undefined, binding: string): 
   if (!binding) return false;
   if (binding.length === 1) return input === binding;
   return (keyName ?? "") === binding;
+}
+
+function bundleIdForShare(name: string): string {
+  if (name.startsWith("@doc0/")) return name.slice("@doc0/".length);
+  const parts = name.replace(/^@/, "").split("/");
+  return parts[parts.length - 1] ?? name;
 }
 
 function BundleHomePanel({
@@ -403,6 +410,22 @@ function TuiApp({ bundle, config, onExit }: { bundle: LoadedBundle; config: D0Co
     }
 
     if (mode === "read") {
+      if (keyMatch(input, undefined, kb.copy_page_url)) {
+        const id = bundleIdForShare(bundle.manifest.name);
+        const url = `https://doc0.sh/${id}/${readSlug}`;
+        void copyToClipboard(url).then((ok) => {
+          if (ok) console.log(`Copied: ${url}`);
+        });
+        return;
+      }
+      if (keyMatch(input, undefined, kb.copy_page_cli)) {
+        const id = bundleIdForShare(bundle.manifest.name);
+        const cmd = `doc0 ${id} read ${readSlug}`;
+        void copyToClipboard(cmd).then((ok) => {
+          if (ok) console.log(`Copied: ${cmd}`);
+        });
+        return;
+      }
       if (input === kb.scroll_down || key.downArrow) {
         setScroll((s) => s + 1);
         return;

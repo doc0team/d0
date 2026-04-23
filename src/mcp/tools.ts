@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { findInstalledBundle } from "../core/storage.js";
 import { loadBundle, listSlugs, readPageMarkdown } from "../core/bundle.js";
-import { buildIndex, searchIndex } from "../core/search-engine.js";
+import { buildHybridIndex, buildIndex, searchHybrid, searchIndex } from "../core/search-engine.js";
 import {
   fetchLlmsFullTxt,
   isUrlLike,
@@ -74,6 +74,50 @@ function entryCard(entry: DocsRegistryEntry): Record<string, unknown> {
 
 function text(obj: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(obj) }] };
+}
+
+async function askWithProvider(prompt: string): Promise<string> {
+  const openai = process.env.OPENAI_API_KEY;
+  if (openai) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${openai}`,
+      },
+      body: JSON.stringify({
+        model: process.env.D0_OPENAI_CHAT_MODEL ?? "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const out = body.choices?.[0]?.message?.content?.trim();
+      if (out) return out;
+    }
+  }
+  const anthropic = process.env.ANTHROPIC_API_KEY;
+  if (anthropic) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": anthropic,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: process.env.D0_ANTHROPIC_CHAT_MODEL ?? "claude-3-5-haiku-latest",
+        max_tokens: 800,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+      const out = body.content?.find((c) => c.type === "text")?.text?.trim();
+      if (out) return out;
+    }
+  }
+  throw new Error("No OPENAI_API_KEY or ANTHROPIC_API_KEY configured for ask_docs.");
 }
 
 function makeTitleFromPath(p: string): string {
@@ -448,6 +492,50 @@ export function registerD0Tools(server: McpServer): void {
     async () => {
       const entries = await listDocsRegistryEntries(mcpRegistryOptions());
       return text(entries.map(entryCard));
+    },
+  );
+
+  server.registerTool(
+    "ask_docs",
+    {
+      description:
+        "Ask one question against a docs source and get a synthesized answer with citations in one call.",
+      inputSchema: {
+        id: z.string().describe("Registry identifier (e.g. \"stripe\") or alias"),
+        question: z.string().describe("Question to answer"),
+      },
+    },
+    async ({ id, question }) => {
+      const entry = await resolveOrFail(id);
+      if (!entry) return text({ error: "docs not found", id });
+      const citations: Array<{ path: string; title: string; snippet: string }> = [];
+
+      if (entry.sourceType === "bundle") {
+        const ref = await findInstalledBundle(entry.source);
+        if (!ref) return text({ error: "bundle not installed", id: entry.id, bundle: entry.source });
+        const bundle = await loadBundle(ref.root);
+        const hybrid = await buildHybridIndex(bundle);
+        const hits = await searchHybrid(hybrid, question, 8);
+        for (const h of hits) citations.push({ path: `/${h.slug}`, title: h.title, snippet: h.snippet });
+      } else {
+        const hits = await searchDocUrls(entry.source, question, undefined, { maxFetch: 20, earlyExit: true });
+        for (const h of hits.slice(0, 8)) citations.push({ path: h.url, title: h.title, snippet: h.snippet });
+      }
+
+      const prompt = `Answer the question using the context snippets. Keep it concise and practical.\nQuestion: ${question}\n\nContext:\n${citations
+        .map((c, i) => `(${i + 1}) ${c.title}\n${c.snippet}`)
+        .join("\n\n")}`;
+      try {
+        const answer = await askWithProvider(prompt);
+        return text({ id: entry.id, question, answer, citations });
+      } catch (e) {
+        return text({
+          id: entry.id,
+          question,
+          error: e instanceof Error ? e.message : String(e),
+          citations,
+        });
+      }
     },
   );
 }
